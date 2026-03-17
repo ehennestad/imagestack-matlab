@@ -4,14 +4,14 @@ function rootDir = toolboxdir()
     %   ROOT_DIR = TOOLBOXDIR() returns the root directory of the toolbox.
     %
     %   Example:
-    %       rootDir = {{ cookiecutter.namespace_name }}.toolboxdir()
+    %       rootDir = imagestack.toolboxdir()
     %
-    %   See also {{ cookiecutter.namespace_name }}.toolboxversion
+    %   See also imagestack.toolboxversion
 
     % Get the location of this function
     functionPath = mfilename('fullpath');
     
-    % Get the package directory (+{{ cookiecutter.namespace_name }})
+    % Get the package directory (+imagestack)
     packageDir = fileparts(functionPath);
     
     % Get the code directory (parent of package directory)

@@ -1,0 +1,14 @@
+{
+    "Namespace" : "imagestack",
+    "ToolboxOptions": {
+        "Identifier": "7e50ff68-cce1-48ed-bdd9-953f2782a9e8",
+        "ToolboxName": "ImageStack",
+        "AuthorName": "Eivind Hennestad",
+        "AuthorEmail": "eivihe@uio.no",
+        "AuthorCompany": "University of Oslo",
+        "Summary": "A class based data model representing image stacks in 5 dimensions",
+        "Description": "A detailed description of your MATLAB toolbox. This can span multiple lines to provide users with enough information on what your toolbox offers and how it can be used.",
+        "MinimumMatlabRelease": "R2019b",
+        "MaximumMatlabRelease": ""
+    }
+}
