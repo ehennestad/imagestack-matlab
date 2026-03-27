@@ -8,12 +8,13 @@ on:
       - '.github/**'
       - 'config.yaml'
 
-
   pull_request:
     branches: main
     paths-ignore:
       - '*md'
       - '.github/**'
+
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
