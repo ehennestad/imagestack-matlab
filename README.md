@@ -2,6 +2,7 @@
 
 [![Version Number](https://img.shields.io/github/v/release/ehennestad/imagestack-matlab?label=version)](https://github.com/ehennestad/imagestack-matlab/releases/latest)
 [![MATLAB Tests](.github/badges/tests.svg)](https://github.com/ehennestad/imagestack-matlab/actions/workflows/test-code.yml)
+[![codecov](https://codecov.io/gh/ehennestad/imagestack-matlab/graph/badge.svg?token=SY9BOEWZNL)](https://codecov.io/gh/ehennestad/imagestack-matlab)
 [![MATLAB Code Issues](.github/badges/code_issues.svg)](https://github.com/ehennestad/imagestack-matlab/security/code-scanning)
 [![Run Codespell](https://github.com/ehennestad/imagestack-matlab/actions/workflows/run-codespell.yml/badge.svg)](https://github.com/ehennestad/imagestack-matlab/actions/workflows/run-codespell.yml)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://gitHub.com/ehennestad/imagestack-matlab/graphs/commit-activity)
