@@ -93,7 +93,7 @@ classdef TestImageStackData < matlab.unittest.TestCase
         function testValidateDimensionArrangementErrorsOnInvalidLetter(testCase)
             testCase.verifyError(@() imagestack.TestableMatlabArray( ...
                 zeros(5, 4, 4), DataDimensionArrangement='YXA'), ...
-                'Nansen:ImageStackData:WrongDimensionLetter')
+                'IMAGESTACK:WrongDimensionLetter')
         end
 
         function testGetImageDataByteSize(testCase)

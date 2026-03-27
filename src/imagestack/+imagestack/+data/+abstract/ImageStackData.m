@@ -1,28 +1,18 @@
 classdef ImageStackData < handle
-%AbstractData Abstract wrapper for multi-dimensional image stack data
+%ImageStackData Abstract backend for stack-shaped image data.
 %
+%   Subclasses own the source data and implement storage-specific reads
+%   and writes. This base class owns dimension semantics, including:
+%   - source data arrangement
+%   - stack-facing arrangement
+%   - stack size derived from the current arrangement mapping
 %
 %   ABSTRACT METHODS
 %       assignDataSize(obj)
 %       assignDataType(obj)
-%       getData(obj, subs)              % Get data specified by subs
-%       setData(obj, data, subs)        % Set data specified by subs
-
-%   TODO
-%       [ ] Add reshape functionality, so that number of data dimensions
-%           and number of stack dimensions can be different
-%           - i.e data dimension is : YXN and stack dimension is YX[CT]
-%           - Use Deinterleaver class...
-
-%       [ ] Should both DataDimensionArrangement and
-%           StackDimensionArrangement be added to metadata?
-
-%       [ ] Clean up code to better reflect how to convert from data to
-%           stack indices and back.
-%           Rename StackDimensionOrder to StackPermutationOrder or
-%           something similar? Also store the DataPermutation order
-%           (equivalent to the ipermute order)?
-%
+%       getData(obj, subs)
+%       setData(obj, data, subs)
+%       data = getLinearizedData(obj)
 
 % - - - - - - - - - - - - PROPERTIES - - - - - - - - - - - - - - - - - - -
 
@@ -487,7 +477,7 @@ classdef ImageStackData < handle
             if ~all( ismember(dimArrangement, A) )
                 msg2 = sprintf('Dimension arrangement can only contain the letters %s', ...
                 strjoin( arrayfun(@(c) sprintf('''%s''',c), A, 'uni', 0), ', ') );
-                error('Nansen:ImageStackData:WrongDimensionLetter', msg2) %#ok<SPERR>
+                error('IMAGESTACK:WrongDimensionLetter', msg2) %#ok<SPERR>
             end
             
             % Check that the dimension arrangement is a permutation of
