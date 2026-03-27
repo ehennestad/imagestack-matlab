@@ -44,3 +44,5 @@ jobs:
       # matlab_products: >
       #   Image_Processing_Toolbox
       #   Statistics_and_Machine_Learning_Toolbox
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
