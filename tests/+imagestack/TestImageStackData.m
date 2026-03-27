@@ -69,6 +69,27 @@ classdef TestImageStackData < matlab.unittest.TestCase
             testCase.verifyEqual(rearranged, {':', ':', 2, 6})
         end
 
+        function testChangingDataArrangementPreservesStackOrderWhenPossible(testCase)
+            array = imagestack.TestableMatlabArray(zeros(5, 4, 2, 7), ...
+                DataDimensionArrangement='YXCT', ...
+                StackDimensionArrangement='YXTC');
+
+            array.DataDimensionArrangement = 'YXZT';
+
+            testCase.verifyEqual(array.StackDimensionArrangement, 'YXTZ')
+            testCase.verifyEqual(size(array), [5, 4, 7, 2])
+        end
+
+        function testChangingDataArrangementToDefaultUsesDefaultOrder(testCase)
+            array = imagestack.TestableMatlabArray(zeros(5, 4, 2, 3, 7), ...
+                DataDimensionArrangement='YXCZT', ...
+                StackDimensionArrangement='YXTZC');
+
+            array.DataDimensionArrangement = 'YXCZT';
+
+            testCase.verifyEqual(array.StackDimensionArrangement, 'YXTZC')
+        end
+
         function testValidateDimensionArrangementErrorsOnInvalidLetter(testCase)
             testCase.verifyError(@() imagestack.TestableMatlabArray( ...
                 zeros(5, 4, 4), DataDimensionArrangement='YXA'), ...

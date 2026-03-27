@@ -267,13 +267,11 @@ classdef ImageStackData < handle
             obj.validateDimensionArrangement(newValue, refValue)
             
             obj.StackDimensionArrangement = newValue;
-            obj.updateStackDimensionOrder()
-            obj.updateStackSize()
+            obj.rebuildDerivedDimensionState()
         end
         
         function set.StackDimensionOrder(obj, newValue)
             obj.StackDimensionOrder = newValue;
-            obj.onStackDimensionOrderChanged()
         end
     end
     
@@ -338,89 +336,33 @@ classdef ImageStackData < handle
                 return
             end
 
-            % Find the dimensions that are present in the data, arranged in
-            % the same order as the default dimension arrangement.
-            C = intersect( obj.DEFAULT_DIMENSION_ARRANGEMENT, ...
-                           obj.DataDimensionArrangement, 'stable' );
-            
-            % Set the property value
-            obj.StackDimensionArrangement = C;
+            obj.StackDimensionArrangement = ...
+                obj.getCanonicalStackArrangement(obj.DataDimensionArrangement);
             
         end
         
         function onDataDimensionArrangementChanged(obj, oldValue, newValue)
-            
+            obj.normalizeDimensionInputs()
+
             if ~isempty(obj.MetaData)
                 obj.MetaData.DimensionArrangement = obj.DataDimensionArrangement;
             end
-            
-            % If the last dimension has length 1, matlab automatically
-            % squeezes, but its important that the last dimension is
-            % represented in DataSize, even if it has length 1
-            if numel(obj.DataSize) < numel(obj.DataDimensionArrangement)
-                nDims = numel(obj.DataDimensionArrangement);
-                if ~isempty(obj.DataSize)
-                    obj.DataSize(nDims) = 1;
-                    obj.DataSize(obj.DataSize==0) = 1;
-                end
-            end
 
-            % Check if any dimensions were redefined
             if ~isempty(oldValue) && ~isempty(obj.StackDimensionArrangement)
-                        
-                oldDim = setdiff(oldValue, newValue);
-                newDim = setdiff(newValue, oldValue);
-                
-                if numel(oldDim) == 1 && numel(newDim) == 1
-                    % A data dimension was exchanged for another. Update
-                    obj.StackDimensionArrangement = strrep(obj.StackDimensionArrangement, oldDim, newDim);
-                elseif ~isempty(newDim) && isempty(oldDim)
-                    % A data dimension was added
-                    % Note: This assumes the dimension was added at the end
-                    % I dont know if that's a valid assumption.
-                    % Todo: This need more development for special cases
-                    obj.StackDimensionArrangement = strcat(obj.StackDimensionArrangement, newDim);
-                elseif isempty(newDim) && isempty(oldDim)
-                    % Data dimensions were rearranged
-                    obj.StackDimensionArrangement = newValue;
-                else
-                    error('Something went wrong')
-                end
+                obj.StackDimensionArrangement = ...
+                    obj.reconcileStackArrangement(oldValue, newValue);
+            else
+                obj.rebuildDerivedDimensionState()
             end
-            
-            % If data dimension arrangement is set on construction
-            if isempty(obj.StackDimensionOrder); return; end
-            
-            % Todo: Remove (these should be redundant since there is a
-            % callback when the StackDimensionArrangement is set.
-            stackDimensionOrderPre = obj.StackDimensionOrder;
-            obj.updateStackDimensionOrder()
-            if ~isequal(stackDimensionOrderPre, obj.StackDimensionOrder)
-                error('Unexpected behavior. Debug/report!')
-            end
-            % Todo: remove. This is also redundant
-            %obj.updateStackSize();
         end
         
-        function updateStackDimensionOrder(obj)
-        %updateStackDimensionOrder Update the StackDimensionOrder property
-        %
-        %   Update the StackDimensionOrder to reflect the mapping from
-        %   DataDimensionArrangement to StackDimensionArrangement
+        function rebuildStackDimensionOrder(obj)
+        %rebuildStackDimensionOrder Recompute the data-to-stack permutation.
         
-            % % % Could potentially also defined the data dimension order
-            % % % i.e the "ipermutation" indices.
-            % % % [Lia, Locb] = ismember(obj.StackDimensionArrangement, ...
-            % % %     obj.DataDimensionArrangement);
-            % % %
-            % % % dataDimensionOrder = Locb(Lia);
-
             [Lia, Locb] = ismember(obj.DataDimensionArrangement, ...
                 obj.StackDimensionArrangement);
             
             obj.StackDimensionOrder = Locb(Lia);
-            
-            %obj.MetaData.DimensionArrangement = obj.StackDimensionArrangement;
         end
         
         function dim = getDataDimensionNumber(obj, dimensionName)
@@ -464,33 +406,74 @@ classdef ImageStackData < handle
         end
         
         function onDataSizeChanged(obj)
-            obj.updateStackSize()
+            obj.normalizeDimensionInputs()
+            obj.rebuildDerivedDimensionState()
         end
         
-        function onStackDimensionOrderChanged(obj)
-            obj.updateStackSize()
-        end
-        
-        function updateStackSize(obj)
-        %updateStackSize Update StackSize based on StackDimensionArrangement
-        
-            % Since Matlab squeezes singleton dimensions if they are at the
-            % end of an array, it might occur that the StackDimensionOrder
-            % has more elements than the DataSize. Make sure this does not
-            % case an error:
-            nd = numel(obj.DataSize);
-            if numel(obj.StackDimensionOrder) > nd
-                obj.StackSize(obj.StackDimensionOrder(1:nd)) = obj.DataSize; % Todo: is this correct?
-            else
-                %obj.StackSize = obj.DataSize(obj.StackDimensionOrder);
-                if ~isempty(obj.StackDimensionOrder)
-                    obj.StackSize(obj.StackDimensionOrder) = obj.DataSize;
-                end
+        function rebuildDerivedDimensionState(obj)
+        %rebuildDerivedDimensionState Recompute all dimension-derived state.
+        %
+        %   DataSize and DataDimensionArrangement are treated as the
+        %   source-of-truth provided by adapters and constructors. The
+        %   stack-facing properties are derived from those plus the current
+        %   StackDimensionArrangement.
+            if isempty(obj.DataDimensionArrangement) || isempty(obj.StackDimensionArrangement)
+                return
             end
+
+            obj.rebuildStackDimensionOrder()
+            obj.rebuildStackSize()
+        end
+
+        function normalizeDimensionInputs(obj)
+        %normalizeDimensionInputs Validate assumptions for derived state.
+            %#ok<MANU>
+            % Keep DataSize as the source-of-truth assigned by adapters.
+            % Any needed singleton padding is handled when deriving stack
+            % state, so we avoid recursive writes through the DataSize
+            % setter while refreshing dimensions.
+        end
+
+        function newStackArrangement = reconcileStackArrangement(obj, oldValue, newValue)
+        %reconcileStackArrangement Preserve visible stack order when possible.
+        %
+        %   When the data arrangement changes, keep the current stack order
+        %   for dimensions that still exist, then append any newly
+        %   available dimensions in canonical order.
+            %#ok<INUSD>
+            currentStackArrangement = obj.StackDimensionArrangement;
+            keptDimensions = intersect(currentStackArrangement, newValue, 'stable');
+            missingDimensions = setdiff( ...
+                obj.getCanonicalStackArrangement(newValue), ...
+                keptDimensions, 'stable');
+            newStackArrangement = [keptDimensions, missingDimensions];
+        end
+
+        function rebuildStackSize(obj)
+        %rebuildStackSize Map data-space sizes into stack-space order.
+            if isempty(obj.StackDimensionOrder)
+                obj.StackSize = [];
+                return
+            end
+
+            dataSize = obj.DataSize;
+            dataSize(dataSize == 0) = 1;
+
+            stackSize = ones(1, numel(obj.StackDimensionOrder));
+            nAssignedDims = min(numel(dataSize), numel(obj.StackDimensionOrder));
+            targetPositions = obj.StackDimensionOrder(1:nAssignedDims);
+            stackSize(targetPositions) = dataSize(1:nAssignedDims);
+            obj.StackSize = stackSize;
         end
     end
     
     methods (Static, Access = private)
+        
+        function arrangement = getCanonicalStackArrangement(dataArrangement)
+            arrangement = intersect( ...
+                imagestack.data.abstract.ImageStackData.DEFAULT_DIMENSION_ARRANGEMENT, ...
+                dataArrangement, 'stable');
+        end
         
         function validateDimensionArrangement(dimArrangement, refArrangement)
             
