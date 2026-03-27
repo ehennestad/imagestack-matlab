@@ -1,5 +1,13 @@
 classdef ImageStack < handle
-%ImageStack Wrapper for in-memory image stack data.
+%ImageStack Front-end wrapper for stack-shaped image data.
+%
+%   ImageStack presents a user-facing view of stack data while delegating
+%   storage and indexing details to an ImageStackData backend. The front
+%   end is responsible for:
+%   - current channel / plane selection
+%   - standard versus extended indexing behavior
+%   - chunk-oriented reads
+%   - simple projection helpers
 
     properties
         Name char = 'UNNAMED'
@@ -26,7 +34,7 @@ classdef ImageStack < handle
 
     methods
         function obj = ImageStack(dataReference, varargin)
-            [stackOptions, dataOptions] = obj.parseInputs(varargin{:});
+            [stackOptions, dataOptions] = obj.parseConstructorInputs(varargin{:});
 
             obj.Data = obj.initializeData(dataReference, dataOptions{:});
             obj.Name = stackOptions.Name;
@@ -79,6 +87,10 @@ classdef ImageStack < handle
         end
 
         function data = getFrameSet(obj, frameInd, mode)
+        %getFrameSet Read stack data through the current front-end view.
+        %
+        %   `standard` mode respects CurrentChannel and CurrentPlane.
+        %   `extended` mode exposes the full backend arrangement.
             if nargin < 2 || isempty(frameInd)
                 frameInd = ':';
             end
@@ -94,8 +106,8 @@ classdef ImageStack < handle
                 end
             end
 
-            subs = obj.getDefaultSubs(mode);
-            frameDim = obj.getFrameDimensionNumber(mode);
+            subs = obj.buildIndexingSubs(mode);
+            frameDim = obj.resolveFrameDimensionNumber(mode);
             subs{frameDim} = frameInd;
             data = obj.Data(subs{:});
         end
@@ -140,7 +152,7 @@ classdef ImageStack < handle
                 if ~strcmp(dimMode, 'extended')
                     dimMode = 'standard';
                 end
-                dim = obj.getDimensionNumber(char(dim), dimMode);
+                dim = obj.lookupDimensionNumber(char(dim), dimMode);
             end
 
             switch lower(projectionName)
@@ -181,7 +193,7 @@ classdef ImageStack < handle
             end
 
             chunkSize = size(obj.Data);
-            dimNumber = obj.getDimensionNumber(dim, 'extended');
+            dimNumber = obj.lookupDimensionNumber(dim, 'extended');
             chunkSize(dimNumber) = min(chunkSize(dimNumber), n);
         end
 
@@ -205,7 +217,7 @@ classdef ImageStack < handle
     end
 
     methods (Access = private)
-        function [stackOptions, dataOptions] = parseInputs(~, varargin)
+        function [stackOptions, dataOptions] = parseConstructorInputs(~, varargin)
             stackOptions = struct('Name', 'UNNAMED', ...
                 'CurrentChannel', 1, 'CurrentPlane', 1);
             dataOptions = {};
@@ -236,7 +248,7 @@ classdef ImageStack < handle
         end
 
         function dimLength = getDimensionLength(obj, dimName)
-            dimIndex = strfind(obj.Data.DataDimensionArrangement, dimName);
+            dimIndex = obj.lookupDimensionNumber(dimName, 'extended');
             if isempty(dimIndex)
                 dimLength = 1;
             else
@@ -244,7 +256,8 @@ classdef ImageStack < handle
             end
         end
 
-        function dimNumber = getDimensionNumber(obj, dimName, mode)
+        function dimNumber = lookupDimensionNumber(obj, dimName, mode)
+        %lookupDimensionNumber Resolve a dimension letter to a numeric axis.
             if nargin < 3 || isempty(mode)
                 mode = 'standard';
             end
@@ -257,7 +270,8 @@ classdef ImageStack < handle
             end
         end
 
-        function subs = getDefaultSubs(obj, mode)
+        function subs = buildIndexingSubs(obj, mode)
+        %buildIndexingSubs Build front-end subscripts for a read request.
             if nargin < 2 || isempty(mode)
                 mode = 'standard';
             end
@@ -274,18 +288,19 @@ classdef ImageStack < handle
                 return
             end
 
-            dimC = obj.getDimensionNumber('C', mode);
+            dimC = obj.lookupDimensionNumber('C', mode);
             if ~isempty(dimC) && ~isequal(obj.CurrentChannel, ':')
                 subs{dimC} = obj.CurrentChannel;
             end
 
-            dimZ = obj.getDimensionNumber('Z', mode);
+            dimZ = obj.lookupDimensionNumber('Z', mode);
             if ~isempty(dimZ) && ~isequal(obj.CurrentPlane, ':')
                 subs{dimZ} = obj.CurrentPlane;
             end
         end
 
-        function frameDim = getFrameDimensionNumber(obj, mode)
+        function frameDim = resolveFrameDimensionNumber(obj, mode)
+        %resolveFrameDimensionNumber Choose the stack axis used as frames.
             if nargin < 2 || isempty(mode)
                 mode = 'standard';
             end
@@ -293,17 +308,17 @@ classdef ImageStack < handle
             switch mode
                 case 'extended'
                     if contains(obj.Data.DataDimensionArrangement, 'T')
-                        frameDim = obj.getDimensionNumber('T', 'extended');
+                        frameDim = obj.lookupDimensionNumber('T', 'extended');
                     elseif contains(obj.Data.DataDimensionArrangement, 'Z')
-                        frameDim = obj.getDimensionNumber('Z', 'extended');
+                        frameDim = obj.lookupDimensionNumber('Z', 'extended');
                     else
                         frameDim = numel(obj.Data.DataDimensionArrangement);
                     end
                 otherwise
                     if contains(obj.DimensionOrder, 'T')
-                        frameDim = obj.getDimensionNumber('T');
+                        frameDim = obj.lookupDimensionNumber('T');
                     elseif contains(obj.DimensionOrder, 'Z')
-                        frameDim = obj.getDimensionNumber('Z');
+                        frameDim = obj.lookupDimensionNumber('Z');
                     else
                         frameDim = numel(obj.DimensionOrder);
                     end
