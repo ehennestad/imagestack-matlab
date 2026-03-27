@@ -1,8 +1,8 @@
-classdef ImageStackData < handle
-%ImageStackData Abstract backend for stack-shaped image data.
+classdef ImageStackDataCore < handle
+%ImageStackDataCore Shared backend logic for stack-shaped image data.
 %
 %   Subclasses own the source data and implement storage-specific reads
-%   and writes. This base class owns dimension semantics, including:
+%   and writes. This base class owns shared dimension semantics, including:
 %   - source data arrangement
 %   - stack-facing arrangement
 %   - stack size derived from the current arrangement mapping
@@ -61,13 +61,12 @@ classdef ImageStackData < handle
         
     end
     
-    methods (Sealed) % Override size, class, ndims, subsref & subsasgn
-    % These methods should not be redefined in subclasses
+    methods
     
         function varargout = size(obj, dim)
         %SIZE Implement size function to mimic array functionality.
             
-            numObj = numel(obj);
+            numObj = builtin('numel', obj);
             if numObj > 1
                 varargout = {numObj}; return
             end
@@ -126,107 +125,6 @@ classdef ImageStackData < handle
         %CLASS Implement class function to mimic array functionality.
             dataType = sprintf('%s (%s ImageStackData)', obj(1).DataType, obj(1).StackDimensionArrangement);
         end
-                
-        function varargout = subsref(obj, s, varargin)
-            
-            % Preallocate cell array of output.
-            varargout = cell(1, nargout);
-            
-            % Todo: use numArgumentsFromSubscript instead of try catch
-            % blocks below.
-
-            useBuiltin = strcmp(s(1).type, '.') || numel(obj) > 1;
-
-            if useBuiltin
-                if nargout > 0
-                    [varargout{:}] = builtin('subsref', obj, s);
-                else
-                    try
-                        varargout{1} = builtin('subsref', obj, s);
-                    catch ME
-                        switch ME.identifier
-                            case {'MATLAB:TooManyOutputs', 'MATLAB:maxlhs'}
-                                try
-                                    builtin('subsref', obj, s)
-                                catch ME
-                                    throwAsCaller(ME)
-                                end
-                            otherwise
-                                throwAsCaller(ME)
-                        end
-                    end
-                end
-                return
-                
-            % Return image data if using ()-style referencing
-            elseif strcmp(s(1).type, '()')
-                
-                numRequestedDim = numel(s.subs);
-                
-                if isequal(s.subs, {':'})
-                    varargout{1} = obj.getLinearizedData();
-                    return
-                elseif numRequestedDim == ndims(obj)
-                    subs = obj.rearrangeSubs(s.subs);
-                elseif numRequestedDim == 1
-                    % todo:
-                    [subs{1:ndims(obj)}] = ind2sub(obj.DataSize, s.subs{1});
-                else
-                    error('Requested number of dimensions does not match number of data dimensions')
-                    % Todo: If there are too many dimensions in subs,
-                    % it is fine if they are singletons. Same, if there
-                    % are too few, treat the leftout dimensions as
-                    % one.?
-                end
-                
-                % Todo: check that subs are not exceeding data/array bounds
-                % obj.validateSubs() % Todo: make this method...
-                
-                data = obj.getData(subs);
-                
-                % Permute data according to the stack dimension order
-                data = ipermute(data, obj.StackDimensionOrder);
-                
-                [varargout{:}] = data;
-
-            else
-                error('Indexing is not implemented.')
-            end
-        end
-        
-        function obj = subsasgn(obj, s, data)
-                        
-            switch s(1).type
-
-                % Use builtin if a property is requested.
-                case '.'
-                    try
-                        obj = builtin('subsasgn', obj, s, data);
-                        return
-                    catch ME
-                        rethrow(ME)
-                    end
-                    
-                % Set image data if using ()-style referencing
-                case '()'
-                
-                    numRequestedDim = numel(s.subs);
-                    
-                    if numRequestedDim == ndims(obj)
-                        subs = obj.rearrangeSubs(s.subs);
-                    else
-                        error('Indexing does not match stack size')
-                    end
-
-                    % Permute data according to the stack dimension order
-                    data = permute(data, obj.StackDimensionOrder);
-                    obj.setData(subs, data)
-            end
-            
-            if ~nargout
-                clear obj
-            end
-        end
         
         function name = getDataAdapterClass(obj)
             fullClassName = builtin('class', obj);
@@ -276,6 +174,46 @@ classdef ImageStackData < handle
     
     methods (Access = protected) % Internal updating (change to private?) onDataSizeChanged must be protected...
         
+        function varargout = referenceStackData(obj, stackSubs)
+            if isequal(stackSubs, {':'})
+                varargout{1} = obj.getLinearizedData();
+                return
+            end
+
+            numRequestedDim = numel(stackSubs);
+
+            if numRequestedDim == ndims(obj)
+                dataSubs = obj.rearrangeSubs(stackSubs);
+            elseif numRequestedDim == 1
+                [dataSubs{1:ndims(obj)}] = ind2sub(obj.DataSize, stackSubs{1});
+            else
+                error('IMAGESTACK:InvalidIndexing', ...
+                    'Requested number of dimensions does not match number of data dimensions.')
+            end
+
+            data = obj.getData(dataSubs);
+            varargout{1} = ipermute(data, obj.StackDimensionOrder);
+        end
+
+        function assignStackData(obj, stackSubs, data)
+            if numel(stackSubs) ~= ndims(obj)
+                error('IMAGESTACK:InvalidIndexing', ...
+                    'Indexing does not match stack size.')
+            end
+
+            dataSubs = obj.rearrangeSubs(stackSubs);
+            data = permute(data, obj.StackDimensionOrder);
+            obj.setData(dataSubs, data)
+        end
+
+        function varargout = forwardReference(~, value, indexOp)
+            [varargout{1:nargout}] = value.(indexOp);
+        end
+
+        function n = getForwardedListLength(~, value, indexOp, indexContext)
+            n = listLength(value, indexOp, indexContext);
+        end
+
         function setDefaultDataDimensionArrangement(obj)
         %setDefaultDataDimensionArrangement Assign default property value
         %
@@ -461,7 +399,7 @@ classdef ImageStackData < handle
         
         function arrangement = getCanonicalStackArrangement(dataArrangement)
             arrangement = intersect( ...
-                imagestack.data.abstract.ImageStackData.DEFAULT_DIMENSION_ARRANGEMENT, ...
+                imagestack.data.abstract.ImageStackDataCore.DEFAULT_DIMENSION_ARRANGEMENT, ...
                 dataArrangement, 'stable');
         end
         
@@ -472,7 +410,7 @@ classdef ImageStackData < handle
             assert(ischar(dimArrangement), msg1)
             
             % Check that dimension arrangement is compatible with defaults
-            A = imagestack.data.abstract.ImageStackData.DEFAULT_DIMENSION_ARRANGEMENT;
+            A = imagestack.data.abstract.ImageStackDataCore.DEFAULT_DIMENSION_ARRANGEMENT;
             
             if ~all( ismember(dimArrangement, A) )
                 msg2 = sprintf('Dimension arrangement can only contain the letters %s', ...
