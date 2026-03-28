@@ -81,6 +81,20 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
             tf = ~isempty(obj.DynamicFrameCache);
         end
 
+        function setDynamicCacheEnabled(obj, tf)
+            obj.UseDynamicCache = logical(tf);
+
+            if isempty(obj.DataSize) || isempty(obj.DataType)
+                return
+            end
+
+            if obj.UseDynamicCache
+                obj.initializeDynamicFrameCache()
+            else
+                obj.DynamicFrameCache = imagestack.utility.FrameCache.empty;
+            end
+        end
+
         function data = readData(obj, subs)
             if numel(subs) < numel(obj.DataSize)
                 subs{end+1:numel(obj.DataSize)} = {1};

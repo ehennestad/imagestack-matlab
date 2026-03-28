@@ -22,6 +22,7 @@ classdef ImageStack < handle
         DimensionOrder
         DataDimensionOrder
         DataType
+        DynamicCacheEnabled
     end
 
     properties (Dependent, SetAccess = private)
@@ -56,6 +57,28 @@ classdef ImageStack < handle
 
         function value = get.DataType(obj)
             value = obj.Data.DataType;
+        end
+
+        function value = get.DynamicCacheEnabled(obj)
+            if obj.isVirtualBackend()
+                value = obj.Data.UseDynamicCache;
+            else
+                value = false;
+            end
+        end
+
+        function set.DynamicCacheEnabled(obj, newValue)
+            tf = obj.normalizeSwitchValue(newValue);
+
+            if ~obj.isVirtualBackend()
+                if tf
+                    error('IMAGESTACK:DynamicCacheUnavailable', ...
+                        'Dynamic cache is only available for virtual backends.')
+                end
+                return
+            end
+
+            obj.Data.setDynamicCacheEnabled(tf)
         end
 
         function value = get.ImageHeight(obj)
@@ -110,6 +133,26 @@ classdef ImageStack < handle
             frameDim = obj.resolveFrameDimensionNumber(mode);
             subs{frameDim} = frameInd;
             data = obj.Data(subs{:});
+        end
+
+        function writeFrameSet(obj, imageArray, frameInd)
+        %writeFrameSet Write stack data through the current front-end view.
+            if nargin < 3 || isempty(frameInd)
+                frameInd = ':';
+            end
+
+            if ischar(frameInd) || isstring(frameInd)
+                if strcmp(frameInd, 'all')
+                    frameInd = ':';
+                end
+            end
+
+            subs = obj.buildIndexingSubs('standard');
+            frameDim = obj.resolveFrameDimensionNumber('standard');
+            subs{frameDim} = frameInd;
+
+            obj.validateWriteFrameSetInput(imageArray, subs)
+            obj.Data(subs{:}) = imageArray;
         end
 
         function data = getChunk(obj, chunkIndex, chunkLength, dim)
@@ -173,6 +216,42 @@ classdef ImageStack < handle
 
         end
 
+        function chunkLength = chooseChunkLength(obj, dataType, pctMemoryLoad, dim)
+        %chooseChunkLength Find a conservative chunk length for processing.
+            if nargin < 2 || isempty(dataType)
+                dataType = obj.DataType;
+            end
+            if nargin < 3 || isempty(pctMemoryLoad)
+                pctMemoryLoad = 1/8;
+            end
+            if nargin < 4 || isempty(dim)
+                dim = 'T';
+            end
+
+            dim = upper(char(dim));
+            obj.validateChunkDimension(dim)
+
+            availableMemoryBytes = obj.getAvailableMemoryBytes();
+            availableMemoryBytes = max(1, floor(availableMemoryBytes * pctMemoryLoad));
+
+            bytesPerFrame = imagestack.data.abstract.ImageStackData.getImageDataByteSize( ...
+                [obj.ImageHeight, obj.ImageWidth], dataType);
+            chunkLength = floor(availableMemoryBytes / bytesPerFrame);
+            chunkLength = max(1, chunkLength);
+
+            switch dim
+                case 'T'
+                    chunkLength = floor(chunkLength / max(1, obj.NumChannels * obj.NumPlanes));
+                case 'Z'
+                    chunkLength = floor(chunkLength / max(1, obj.NumChannels * obj.NumTimepoints));
+                case 'C'
+                    chunkLength = floor(chunkLength / max(1, obj.NumPlanes * obj.NumTimepoints));
+            end
+
+            chunkLength = max(1, chunkLength);
+            chunkLength = min(chunkLength, obj.getDimensionLength(dim));
+        end
+
         function chunkSize = getChunkSize(obj, chunkSizeBytes, dim)
             if nargin < 3 || isempty(dim)
                 dim = 'T';
@@ -197,22 +276,57 @@ classdef ImageStack < handle
             chunkSize(dimNumber) = min(chunkSize(dimNumber), n);
         end
 
-        function [indices, numChunks] = getChunkedFrameIndices(obj, numFramesPerChunk, chunkIndex, dim)
+        function [indices, numChunks] = getChunkedFrameIndices(obj, numFramesPerChunk, chunkIndex, dim, firstIdx, lastIdx)
+            if nargin < 2 || isempty(numFramesPerChunk) || isequal(numFramesPerChunk, inf)
+                numFramesPerChunk = obj.ChunkLength;
+            end
+            if nargin < 3 || isempty(chunkIndex)
+                chunkIndex = [];
+            end
             if nargin < 4 || isempty(dim)
                 dim = 'T';
             end
-            if nargin < 3 || isempty(chunkIndex)
-                chunkIndex = 1;
+            if nargin < 5 || isempty(firstIdx)
+                firstIdx = 1;
             end
-            if nargin < 2 || isempty(numFramesPerChunk) || isequal(numFramesPerChunk, inf)
-                numFramesPerChunk = obj.getDimensionLength(dim);
+            if nargin < 6 || isempty(lastIdx)
+                lastIdx = inf;
             end
 
-            numFrames = obj.getDimensionLength(dim);
-            numChunks = ceil(numFrames / numFramesPerChunk);
-            firstIdx = (chunkIndex - 1) * numFramesPerChunk + 1;
-            lastIdx = min(numFrames, chunkIndex * numFramesPerChunk);
-            indices = firstIdx:lastIdx;
+            dim = upper(char(dim));
+            obj.validateChunkDimension(dim)
+
+            dimLength = obj.getDimensionLength(dim);
+            lastIdx = min(dimLength, lastIdx);
+            if firstIdx > lastIdx
+                error('IMAGESTACK:InvalidInterval', ...
+                    'firstIdx must be less than or equal to lastIdx.')
+            end
+
+            numSlices = (lastIdx - firstIdx) + 1;
+            numFramesPerChunk = min(numFramesPerChunk, numSlices);
+            if isempty(numFramesPerChunk) || numFramesPerChunk < 1
+                error('IMAGESTACK:InvalidChunkLength', ...
+                    'Chunk length must be a positive integer.')
+            end
+
+            firstFrames = firstIdx:numFramesPerChunk:lastIdx;
+            lastFrames = firstFrames + numFramesPerChunk - 1;
+            lastFrames(end) = lastIdx;
+
+            numChunks = numel(firstFrames);
+            indices = arrayfun(@(i) firstFrames(i):lastFrames(i), ...
+                1:numChunks, 'UniformOutput', false);
+
+            if isempty(chunkIndex)
+                return
+            end
+
+            if isscalar(chunkIndex)
+                indices = indices{chunkIndex};
+            else
+                indices = indices(chunkIndex);
+            end
         end
     end
 
@@ -322,6 +436,71 @@ classdef ImageStack < handle
                     else
                         frameDim = numel(obj.DimensionOrder);
                     end
+            end
+        end
+
+        function validateWriteFrameSetInput(obj, imageArray, subs)
+            expectedSize = size(obj.Data);
+            for i = 1:numel(subs)
+                if ~(ischar(subs{i}) || isstring(subs{i}))
+                    expectedSize(i) = numel(subs{i});
+                end
+            end
+
+            imageSize = size(imageArray);
+            maxLen = max(numel(expectedSize), numel(imageSize));
+            expectedSize(end+1:maxLen) = 1;
+            imageSize(end+1:maxLen) = 1;
+
+            assert(isequal(expectedSize, imageSize), ...
+                'IMAGESTACK:InvalidWriteSize', ...
+                'Input data size does not match the requested frame selection.')
+
+            if obj.isVirtualBackend() && ~strcmp(obj.Data.DataType, class(imageArray))
+                error('IMAGESTACK:InvalidWriteType', ...
+                    'Input data type (%s) must match backend data type (%s).', ...
+                    class(imageArray), obj.Data.DataType)
+            end
+        end
+
+        function tf = isVirtualBackend(obj)
+            tf = isa(obj.Data, 'imagestack.data.VirtualArray');
+        end
+
+        function tf = normalizeSwitchValue(~, value)
+            if isstring(value) || ischar(value)
+                switch lower(char(value))
+                    case 'on'
+                        tf = true;
+                    case 'off'
+                        tf = false;
+                    otherwise
+                        error('IMAGESTACK:InvalidSwitchValue', ...
+                            'DynamicCacheEnabled must be set to on/off or logical.')
+                end
+            else
+                tf = logical(value);
+            end
+        end
+
+        function validateChunkDimension(~, dim)
+            assert(any(strcmp(dim, {'C', 'Z', 'T'})), ...
+                'dim must be ''C'', ''Z'', or ''T''')
+        end
+
+        function availableMemoryBytes = getAvailableMemoryBytes(~)
+            availableMemoryBytes = [];
+
+            try
+                memoryStats = memory;
+                if isstruct(memoryStats) && isfield(memoryStats, 'MemAvailableAllArrays')
+                    availableMemoryBytes = double(memoryStats.MemAvailableAllArrays);
+                end
+            catch
+            end
+
+            if isempty(availableMemoryBytes) || ~isfinite(availableMemoryBytes) || availableMemoryBytes <= 0
+                availableMemoryBytes = 512 * 1024^2;
             end
         end
     end
