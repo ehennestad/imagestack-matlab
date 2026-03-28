@@ -371,6 +371,54 @@ classdef ImageStack < handle
             end
         end
 
+        function insertImage(obj, imageData, insertInd)
+            if nargin < 3 || isempty(insertInd)
+                insertInd = obj.NumTimepoints + 1;
+            end
+
+            if obj.IsVirtual
+                error('IMAGESTACK:InsertNotSupported', ...
+                    'insertImage is only implemented for in-memory stacks.')
+            end
+
+            if obj.NumPlanes > 1
+                error('IMAGESTACK:InsertNotSupported', ...
+                    'insertImage does not yet support multi-plane stacks.')
+            end
+
+            obj.Data.insertImageData(imageData, insertInd)
+            obj.clearDerivedCaches()
+        end
+
+        function downsampledStack = downsampleT(obj, n, method)
+            if nargin < 3 || isempty(method)
+                method = 'mean';
+            end
+
+            if n < 1 || mod(n, 1) ~= 0
+                error('IMAGESTACK:InvalidDownsampleFactor', ...
+                    'Downsample factor must be a positive integer.')
+            end
+
+            numOutputFrames = floor(obj.NumTimepoints / n);
+            if numOutputFrames < 1
+                error('IMAGESTACK:InvalidDownsampleFactor', ...
+                    'Downsample factor exceeds the number of timepoints.')
+            end
+
+            frameDim = obj.resolveFrameDimensionNumber('standard');
+            reducedFrames = cell(1, numOutputFrames);
+            for i = 1:numOutputFrames
+                frameIndices = (i-1) * n + (1:n);
+                frameBlock = obj.getFrameSet(frameIndices, 'standard');
+                reducedFrames{i} = obj.reduceFrameBlock(frameBlock, frameDim, method);
+            end
+
+            reducedData = cat(frameDim, reducedFrames{:});
+            downsampledStack = imagestack.ImageStack(reducedData, ...
+                'DataDimensionArrangement', obj.DimensionOrder);
+        end
+
         function chunkLength = chooseChunkLength(obj, dataType, pctMemoryLoad, dim)
         %chooseChunkLength Find a conservative chunk length for processing.
             if nargin < 2 || isempty(dataType)
@@ -699,6 +747,21 @@ classdef ImageStack < handle
 
         function clearProjectionCache(obj)
             obj.ProjectionCache = struct();
+        end
+
+        function reducedBlock = reduceFrameBlock(obj, frameBlock, dim, method)
+            switch lower(method)
+                case {'mean', 'avg', 'average'}
+                    reducedBlock = mean(frameBlock, dim);
+                    reducedBlock = cast(reducedBlock, obj.DataType);
+                case {'max', 'maximum'}
+                    reducedBlock = max(frameBlock, [], dim);
+                case {'min', 'minimum'}
+                    reducedBlock = min(frameBlock, [], dim);
+                otherwise
+                    error('IMAGESTACK:UnsupportedDownsampleMethod', ...
+                        'Unsupported downsample method "%s".', method)
+            end
         end
     end
 end

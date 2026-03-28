@@ -201,6 +201,40 @@ classdef TestImageStackConsumerContract < matlab.unittest.TestCase
             testCase.verifyEqual(stack.DataIntensityLimits, [10, 20])
             testCase.verifyEqual(stack.getDataIntensityLimits(), [10, 20])
         end
+
+        function testInsertImageIntoInMemoryStack(testCase)
+            stack = testCase.createXYTStack(4);
+            insertedImage = uint16(700 + reshape(1:20, [5, 4]));
+
+            stack.insertImage(insertedImage, 3)
+
+            testCase.verifyEqual(stack.NumTimepoints, 5)
+            testCase.verifyEqual(stack.getFrameSet(3), insertedImage)
+        end
+
+        function testDownsampleTReturnsExpectedMean(testCase)
+            data = reshape(uint16(1:(5*4*6)), [5, 4, 6]);
+            stack = imagestack.ImageStack(data, 'DataDimensionArrangement', 'YXT');
+
+            downsampled = stack.downsampleT(2, 'mean');
+
+            expected = cat(3, ...
+                cast(mean(data(:, :, 1:2), 3), 'uint16'), ...
+                cast(mean(data(:, :, 3:4), 3), 'uint16'), ...
+                cast(mean(data(:, :, 5:6), 3), 'uint16'));
+            testCase.verifyEqual(downsampled.getFrameSet('all'), expected)
+        end
+
+        function testDownsampleTWorksForVirtualSource(testCase)
+            [stack, sourceData] = testCase.createWritableBinaryStack();
+
+            downsampled = stack.downsampleT(2, 'max');
+
+            expected = cat(3, ...
+                max(sourceData(:, :, 1:2), [], 3), ...
+                max(sourceData(:, :, 3:4), [], 3));
+            testCase.verifyEqual(downsampled.getFrameSet('all'), expected)
+        end
     end
 
     methods (Access = private)
