@@ -15,6 +15,9 @@ classdef ImageStack < handle
         CurrentChannel = 1
         CurrentPlane = 1
         ChunkLength double = inf
+        ColorModel char = 'Grayscale'
+        CustomColorModel = []
+        DataIntensityLimits = []
     end
 
     properties (Dependent)
@@ -23,6 +26,8 @@ classdef ImageStack < handle
         DataDimensionOrder
         DataType
         DynamicCacheEnabled
+        IsVirtual
+        HasStaticCache
     end
 
     properties (Dependent, SetAccess = private)
@@ -38,7 +43,8 @@ classdef ImageStack < handle
 
     properties (Access = private)
         ProjectionCache struct = struct()
-        CachedDataIntensityLimits = []
+        StaticCacheData = []
+        StaticCacheFrameIndices = []
     end
 
     methods
@@ -73,6 +79,14 @@ classdef ImageStack < handle
             else
                 value = false;
             end
+        end
+
+        function value = get.IsVirtual(obj)
+            value = obj.isVirtualBackend();
+        end
+
+        function value = get.HasStaticCache(obj)
+            value = ~isempty(obj.StaticCacheData);
         end
 
         function set.DynamicCacheEnabled(obj, newValue)
@@ -305,8 +319,8 @@ classdef ImageStack < handle
         end
 
         function limits = getDataIntensityLimits(obj)
-            if ~isempty(obj.CachedDataIntensityLimits)
-                limits = obj.CachedDataIntensityLimits;
+            if ~isempty(obj.DataIntensityLimits)
+                limits = obj.DataIntensityLimits;
                 return
             end
 
@@ -321,7 +335,7 @@ classdef ImageStack < handle
                 end
             end
 
-            obj.CachedDataIntensityLimits = limits;
+            obj.DataIntensityLimits = limits;
         end
 
         function sampleRate = getSampleRate(obj)
@@ -330,6 +344,31 @@ classdef ImageStack < handle
 
         function data = getFullImage(obj)
             data = obj.getFrameSet('all', 'extended');
+        end
+
+        function addToStaticCache(obj, imData, frameIndices)
+            if nargin < 3
+                frameIndices = [];
+            end
+
+            obj.StaticCacheData = imData;
+            obj.StaticCacheFrameIndices = frameIndices;
+            obj.clearProjectionCache()
+        end
+
+        function byteSize = getCacheByteSize(obj)
+            byteSize = 0;
+
+            if obj.HasStaticCache
+                byteSize = byteSize + imagestack.data.abstract.ImageStackData.getImageDataByteSize( ...
+                    size(obj.StaticCacheData), class(obj.StaticCacheData));
+            end
+
+            if obj.IsVirtual && obj.Data.UseDynamicCache
+                bytesPerFrame = imagestack.data.abstract.ImageStackData.getImageDataByteSize( ...
+                    obj.FrameSize, obj.DataType);
+                byteSize = byteSize + bytesPerFrame * obj.Data.DynamicCacheSize;
+            end
         end
 
         function chunkLength = chooseChunkLength(obj, dataType, pctMemoryLoad, dim)
@@ -654,8 +693,12 @@ classdef ImageStack < handle
         end
 
         function clearDerivedCaches(obj)
+            obj.clearProjectionCache()
+            obj.DataIntensityLimits = [];
+        end
+
+        function clearProjectionCache(obj)
             obj.ProjectionCache = struct();
-            obj.CachedDataIntensityLimits = [];
         end
     end
 end

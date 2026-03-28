@@ -163,6 +163,44 @@ classdef TestImageStackConsumerContract < matlab.unittest.TestCase
 
             testCase.verifyEqual(stack.getFullImage(), data)
         end
+
+        function testIsVirtualReflectsBackendType(testCase)
+            matlabStack = testCase.createXYTStack(4);
+            [binaryStack, ~] = testCase.createWritableBinaryStack();
+
+            testCase.verifyFalse(matlabStack.IsVirtual)
+            testCase.verifyTrue(binaryStack.IsVirtual)
+        end
+
+        function testAddToStaticCacheEnablesHasStaticCache(testCase)
+            stack = testCase.createXYTStack(4);
+            cacheData = stack.getFrameSet(1:2);
+
+            stack.addToStaticCache(cacheData, 1:2)
+
+            testCase.verifyTrue(stack.HasStaticCache)
+            testCase.verifyGreaterThan(stack.getCacheByteSize(), 0)
+        end
+
+        function testColorModelAndCustomColorModelRoundTrip(testCase)
+            stack = testCase.createXYTStack(4);
+            customColors = [1, 0, 0; 0, 1, 0];
+
+            stack.ColorModel = 'Custom';
+            stack.CustomColorModel = customColors;
+
+            testCase.verifyEqual(stack.ColorModel, 'Custom')
+            testCase.verifyEqual(stack.CustomColorModel, customColors)
+        end
+
+        function testDataIntensityLimitsCanBeAssigned(testCase)
+            stack = testCase.createXYTStack(4);
+
+            stack.DataIntensityLimits = [10, 20];
+
+            testCase.verifyEqual(stack.DataIntensityLimits, [10, 20])
+            testCase.verifyEqual(stack.getDataIntensityLimits(), [10, 20])
+        end
     end
 
     methods (Access = private)
