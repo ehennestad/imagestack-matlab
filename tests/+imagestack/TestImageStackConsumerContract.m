@@ -235,6 +235,85 @@ classdef TestImageStackConsumerContract < matlab.unittest.TestCase
                 max(sourceData(:, :, 3:4), [], 3));
             testCase.verifyEqual(downsampled.getFrameSet('all'), expected)
         end
+
+        function testMultiResolutionScaledReadReturnsExpectedSize(testCase)
+            stack = testCase.createXYTStack(4);
+            multiresStack = imagestack.views.MultiResolutionStack(stack);
+
+            scaled = multiresStack.getFrameSet(1, 'Scale', 0.5);
+
+            testCase.verifyEqual(size(scaled), [3, 2])
+        end
+
+        function testMultiResolutionRoiReadReturnsExpectedCrop(testCase)
+            data = reshape(uint16(1:(6*8*2)), [6, 8, 2]);
+            stack = imagestack.ImageStack(data, 'DataDimensionArrangement', 'YXT');
+            multiresStack = imagestack.views.MultiResolutionStack(stack);
+
+            roiData = multiresStack.getFrameSet(1, 'Scale', 0.5, ...
+                'ROI', [2, 3; 1, 2]);
+
+            scaledSource = data(1:2:end, 1:2:end, 1);
+            testCase.verifyEqual(roiData, scaledSource(1:2, 2:3))
+        end
+
+        function testMultiResolutionReusesCachedPyramidLevel(testCase)
+            stack = testCase.createXYTStack(4);
+            multiresStack = imagestack.views.MultiResolutionStack(stack);
+
+            multiresStack.getFrameSet(1, 'Scale', 0.5);
+            cacheCountAfterFirstRead = multiresStack.getNumCachedLevels();
+            multiresStack.getFrameSet(2, 'Scale', 0.5);
+
+            testCase.verifyEqual(cacheCountAfterFirstRead, 2)
+            testCase.verifyEqual(multiresStack.getNumCachedLevels(), 2)
+        end
+
+        function testProcessorSimulationWorkflow(testCase)
+            sourceData = reshape(uint16(1:(5*4*6)), [5, 4, 6]);
+            sourceStack = imagestack.ImageStack(sourceData, 'DataDimensionArrangement', 'YXT');
+            outputStack = imagestack.ImageStack(zeros(size(sourceData), 'uint16'), ...
+                'DataDimensionArrangement', 'YXT');
+
+            [chunks, numChunks] = sourceStack.getChunkedFrameIndices(2);
+            for i = 1:numChunks
+                frames = sourceStack.getFrameSet(chunks{i});
+                processed = frames + 1;
+                outputStack.writeFrameSet(processed, chunks{i})
+            end
+
+            testCase.verifyEqual(outputStack.getFrameSet('all'), sourceData + 1)
+        end
+
+        function testViewerSimulationWorkflow(testCase)
+            data = reshape(uint16(1:(5*4*2*6)), [5, 4, 2, 6]);
+            stack = imagestack.ImageStack(data, ...
+                'DataDimensionArrangement', 'YXCT', 'CurrentChannel', ':');
+
+            movingWindow = stack.getMovingWindowFrameIndices(3, 3);
+            frameSetSize = stack.getFrameSetSize(movingWindow, 'standard');
+            frameSet = stack.getFrameSet(movingWindow, 'standard');
+            projection = stack.getFullProjection('max');
+            stack.DynamicCacheEnabled = false;
+
+            testCase.verifyEqual(frameSetSize, size(frameSet))
+            testCase.verifyEqual(size(projection), [5, 4, 2])
+            testCase.verifyFalse(stack.DynamicCacheEnabled)
+        end
+
+        function testHighResolutionViewerSimulation(testCase)
+            data = reshape(uint16(1:(8*8*4)), [8, 8, 4]);
+            stack = imagestack.ImageStack(data, 'DataDimensionArrangement', 'YXT');
+            multiresStack = imagestack.views.MultiResolutionStack(stack);
+
+            roiA = multiresStack.getDisplayFrame(1, 'Scale', 0.5, ...
+                'ROI', [1, 2; 1, 2]);
+            roiB = multiresStack.getDisplayFrame(1, 'Scale', 0.5, ...
+                'ROI', [2, 3; 1, 2]);
+
+            testCase.verifyEqual(multiresStack.getNumCachedLevels(), 2)
+            testCase.verifyNotEqual(roiA, roiB)
+        end
     end
 
     methods (Access = private)
