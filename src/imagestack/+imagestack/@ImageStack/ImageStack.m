@@ -31,6 +31,14 @@ classdef ImageStack < handle
         NumChannels
         NumPlanes
         NumTimepoints
+        FrameSize
+        NumFrames
+        DataTypeIntensityLimits
+    end
+
+    properties (Access = private)
+        ProjectionCache struct = struct()
+        CachedDataIntensityLimits = []
     end
 
     methods
@@ -101,6 +109,21 @@ classdef ImageStack < handle
             value = obj.getDimensionLength('T');
         end
 
+        function value = get.FrameSize(obj)
+            value = [obj.ImageHeight, obj.ImageWidth];
+        end
+
+        function value = get.NumFrames(obj)
+            value = obj.getSelectionLength(obj.CurrentChannel, 'C') * ...
+                obj.getSelectionLength(obj.CurrentPlane, 'Z') * ...
+                obj.NumTimepoints;
+        end
+
+        function value = get.DataTypeIntensityLimits(obj)
+            value = imagestack.data.abstract.ImageStackData.getImageIntensityLimits( ...
+                obj.DataType);
+        end
+
         function varargout = size(obj, varargin)
             [varargout{1:nargout}] = size(obj.Data, varargin{:});
         end
@@ -153,6 +176,7 @@ classdef ImageStack < handle
 
             obj.validateWriteFrameSetInput(imageArray, subs)
             obj.Data(subs{:}) = imageArray;
+            obj.clearDerivedCaches()
         end
 
         function data = getChunk(obj, chunkIndex, chunkLength, dim)
@@ -214,6 +238,98 @@ classdef ImageStack < handle
                         'Unsupported projection "%s".', projectionName)
             end
 
+        end
+
+        function dataSize = getFrameSetSize(obj, frameInd, mode)
+        %getFrameSetSize Return the size of a requested frame set.
+            if nargin < 2 || isempty(frameInd)
+                frameInd = ':';
+            end
+            if nargin < 3 || isempty(mode)
+                mode = 'standard';
+            end
+
+            if ischar(frameInd) || isstring(frameInd)
+                if strcmp(frameInd, 'all') || strcmp(frameInd, 'cache')
+                    frameInd = ':';
+                end
+            end
+
+            subs = obj.buildIndexingSubs(mode);
+            frameDim = obj.resolveFrameDimensionNumber(mode);
+            subs{frameDim} = frameInd;
+
+            switch mode
+                case 'extended'
+                    baseSize = obj.Data.DataSize;
+                otherwise
+                    baseSize = size(obj.Data);
+            end
+
+            dataSize = obj.getIndexedDataSize(baseSize, subs);
+        end
+
+        function projectionImage = getFullProjection(obj, projectionName)
+        %getFullProjection Return a cached projection for the current view.
+            cacheKey = obj.getProjectionCacheKey(projectionName);
+            if isfield(obj.ProjectionCache, cacheKey)
+                projectionImage = obj.ProjectionCache.(cacheKey);
+                return
+            end
+
+            projectionImage = obj.getProjection(projectionName, 'all', [], 'standard');
+            obj.ProjectionCache.(cacheKey) = projectionImage;
+        end
+
+        function frameIndices = getMovingWindowFrameIndices(obj, frameNum, windowLength, dim)
+            if nargin < 4 || isempty(dim)
+                dim = 'T';
+            end
+
+            dim = upper(char(dim));
+            obj.validateChunkDimension(dim)
+            numFrames = obj.getDimensionLength(dim);
+
+            if frameNum <= ceil(windowLength/2)
+                frameIndices = 1:min(numFrames, windowLength);
+            elseif (numFrames - frameNum) < ceil(windowLength/2)
+                frameIndices = max(numFrames-windowLength+1, 1):numFrames;
+            else
+                halfWidth = floor(windowLength/2);
+                frameIndices = frameNum + (-halfWidth:halfWidth);
+            end
+        end
+
+        function dimNumber = getDimensionNumber(obj, dimName)
+            dimNumber = obj.lookupDimensionNumber(upper(char(dimName)), 'standard');
+        end
+
+        function limits = getDataIntensityLimits(obj)
+            if ~isempty(obj.CachedDataIntensityLimits)
+                limits = obj.CachedDataIntensityLimits;
+                return
+            end
+
+            if isprop(obj.MetaData, 'DataIntensityLimits') ...
+                    && ~isempty(obj.MetaData.DataIntensityLimits)
+                limits = obj.MetaData.DataIntensityLimits;
+            else
+                data = obj.getFullImage();
+                limits = double([min(data(:)), max(data(:))]);
+                if any(~isfinite(limits)) || isempty(limits)
+                    limits = double(obj.DataTypeIntensityLimits);
+                end
+            end
+
+            obj.CachedDataIntensityLimits = limits;
+        end
+
+        function sampleRate = getSampleRate(obj)
+            sampleRate = obj.MetaData.SampleRate;
+        end
+
+        function data = getFullImage(obj)
+            data = obj.getFrameSet('all', 'extended');
         end
 
         function chunkLength = chooseChunkLength(obj, dataType, pctMemoryLoad, dim)
@@ -483,6 +599,17 @@ classdef ImageStack < handle
             end
         end
 
+        function count = getSelectionLength(obj, selection, dimName)
+            if ischar(selection) || isstring(selection)
+                if strcmp(selection, ':')
+                    count = obj.getDimensionLength(dimName);
+                    return
+                end
+            end
+
+            count = max(1, numel(selection));
+        end
+
         function validateChunkDimension(~, dim)
             assert(any(strcmp(dim, {'C', 'Z', 'T'})), ...
                 'dim must be ''C'', ''Z'', or ''T''')
@@ -502,6 +629,33 @@ classdef ImageStack < handle
             if isempty(availableMemoryBytes) || ~isfinite(availableMemoryBytes) || availableMemoryBytes <= 0
                 availableMemoryBytes = 512 * 1024^2;
             end
+        end
+
+        function dataSize = getIndexedDataSize(~, baseSize, subs)
+            dataSize = zeros(1, numel(subs));
+            for i = 1:numel(subs)
+                if ischar(subs{i}) || isstring(subs{i})
+                    dataSize(i) = baseSize(i);
+                else
+                    dataSize(i) = numel(subs{i});
+                end
+            end
+
+            while numel(dataSize) > 2 && dataSize(end) == 1
+                dataSize(end) = [];
+            end
+        end
+
+        function cacheKey = getProjectionCacheKey(obj, projectionName)
+            channelKey = regexprep(mat2str(obj.CurrentChannel), '[^0-9A-Za-z]', '_');
+            planeKey = regexprep(mat2str(obj.CurrentPlane), '[^0-9A-Za-z]', '_');
+            projectionKey = regexprep(lower(char(projectionName)), '[^0-9A-Za-z]', '_');
+            cacheKey = sprintf('%s_c%s_z%s', projectionKey, channelKey, planeKey);
+        end
+
+        function clearDerivedCaches(obj)
+            obj.ProjectionCache = struct();
+            obj.CachedDataIntensityLimits = [];
         end
     end
 end
