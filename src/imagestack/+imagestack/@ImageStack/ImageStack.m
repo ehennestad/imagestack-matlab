@@ -683,14 +683,29 @@ classdef ImageStack < handle
                 return
             end
 
+            % The selections are used as subscripts directly. Comparing
+            % them with ':' through isequal would read the number 58 as a
+            % colon, because 58 is the character code of ':'.
             dimC = obj.getStackAxisNumber('C');
-            if ~isempty(dimC) && ~isequal(obj.CurrentChannel, ':')
-                subs{dimC} = obj.CurrentChannel;
+            if ~isempty(dimC)
+                subs{dimC} = obj.selectionToSubscript(obj.CurrentChannel);
             end
 
             dimZ = obj.getStackAxisNumber('Z');
-            if ~isempty(dimZ) && ~isequal(obj.CurrentPlane, ':')
-                subs{dimZ} = obj.CurrentPlane;
+            if ~isempty(dimZ)
+                subs{dimZ} = obj.selectionToSubscript(obj.CurrentPlane);
+            end
+        end
+
+        function subscript = selectionToSubscript(~, selection)
+        %selectionToSubscript Convert a channel or plane selection to a subscript.
+        %
+        %   A selection is a vector of indices or a colon. Indexing needs
+        %   the colon as a character, so a string ":" is converted.
+            if isstring(selection)
+                subscript = char(selection);
+            else
+                subscript = selection;
             end
         end
 
