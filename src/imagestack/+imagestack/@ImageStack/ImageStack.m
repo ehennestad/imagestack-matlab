@@ -414,6 +414,12 @@ classdef ImageStack < handle
         end
 
         function insertImage(obj, imageData, insertInd)
+        %insertImage Insert image data as new timepoints of an in-memory stack.
+        %
+        %   imageData must match the stack in every dimension except T.
+        %   insertInd is the timepoint the first inserted image gets and
+        %   defaults to the end of the stack. A stack without a T dimension,
+        %   such as a single image, becomes a time series.
             if nargin < 3 || isempty(insertInd)
                 insertInd = obj.NumTimepoints + 1;
             end
@@ -426,6 +432,16 @@ classdef ImageStack < handle
             if obj.NumPlanes > 1
                 error('IMAGESTACK:InsertNotSupported', ...
                     'insertImage does not yet support multi-plane stacks.')
+            end
+
+            % imageData arrives in stack dimension order and the backend
+            % stores data dimension order. They must agree, otherwise the
+            % image would need permuting before it is inserted.
+            if ~strcmp(obj.DataDimensionOrder, obj.DimensionOrder)
+                error('IMAGESTACK:InsertNotSupported', ...
+                    ['insertImage does not yet support a backend whose data ', ...
+                    'dimension order (%s) differs from the stack order (%s).'], ...
+                    obj.DataDimensionOrder, obj.DimensionOrder)
             end
 
             obj.Data.insertImageData(imageData, insertInd)
