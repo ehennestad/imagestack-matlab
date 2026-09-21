@@ -83,10 +83,12 @@ classdef MatlabArray < imagestack.data.abstract.ImageStackData
             obj.DataArray = cat(timeDim, obj.DataArray(subsBefore{:}), ...
                 imageData, obj.DataArray(subsAfter{:}));
 
-            obj.assignDataSize()
+            % The arrangement gains its T before the size is assigned, so
+            % that it describes every dimension of the new size.
             if ~hasTimeDimension
                 obj.DataDimensionArrangement = [obj.DataDimensionArrangement, 'T'];
             end
+            obj.assignDataSize()
             obj.updateMetadata()
         end
 
