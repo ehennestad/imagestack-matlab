@@ -56,6 +56,15 @@ classdef TestImageStackIndexing < matlab.unittest.TestCase
             testCase.verifyEqual(array(end), stackOrderData(end))
         end
 
+        function testLinearIndexEqualToColonCharacterCode(testCase)
+            % double(':') is 58, and isequal(58, ':') is true.
+            data = reshape(uint16(1:(6*4*5)), [6, 4, 5]);
+            array = imagestack.data.MatlabArray(data, DataDimensionArrangement='TYX');
+            stackOrderData = permute(data, [2, 3, 1]);
+
+            testCase.verifyEqual(array(double(':')), stackOrderData(double(':')))
+        end
+
         function testColonReturnsElementsInStackOrder(testCase)
             [array, stackOrderData] = createPermutedArray();
 

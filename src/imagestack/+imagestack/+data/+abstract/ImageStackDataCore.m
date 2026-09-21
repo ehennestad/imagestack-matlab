@@ -176,7 +176,11 @@ classdef ImageStackDataCore < handle
     methods (Access = protected) % Internal updating (change to private?) onDataSizeChanged must be protected...
         
         function varargout = referenceStackData(obj, stackSubs)
-            if isequal(stackSubs, {':'})
+            % isequal(58, ':') is true, because 58 is the character code of
+            % a colon, so the class of the subscript is checked as well.
+            isColon = isscalar(stackSubs) && ischar(stackSubs{1}) ...
+                && strcmp(stackSubs{1}, ':');
+            if isColon
                 varargout{1} = obj.getLinearizedData();
                 return
             end
