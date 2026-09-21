@@ -61,12 +61,14 @@ classdef MatlabArray < imagestack.data.abstract.ImageStackData
                     imageData, obj.DataArray(subsPost{:}));
             end
 
-            obj.assignDataSize()
-
+            % The arrangement must describe the new size before that size
+            % is assigned, because DataSize is validated against it.
             if numel(stackSize) ~= ndims(obj.DataArray) ...
                     && strcmp(obj.DataDimensionArrangement, 'YX')
                 obj.DataDimensionArrangement = 'YXT';
             end
+
+            obj.assignDataSize()
         end
 
         function removeImageData(~, ~)

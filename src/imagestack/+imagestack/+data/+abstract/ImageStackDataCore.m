@@ -137,12 +137,15 @@ classdef ImageStackDataCore < handle
     methods % Set methods for properties
         
         function set.DataSize(obj, newValue)
+            obj.assertArrangementDescribesSize( ...
+                obj.DataDimensionArrangement, newValue) %#ok<MCSUP>
             obj.DataSize = newValue;
             obj.onDataSizeChanged()
         end
         
         function set.DataDimensionArrangement(obj, newValue)
             obj.validateDimensionArrangement(newValue)
+            obj.assertArrangementDescribesSize(newValue, obj.DataSize) %#ok<MCSUP>
             oldValue = obj.DataDimensionArrangement;
             
             if ~strcmp(newValue, oldValue)
@@ -420,6 +423,26 @@ classdef ImageStackDataCore < handle
                 dataArrangement, 'stable');
         end
         
+        function assertArrangementDescribesSize(dimArrangement, dataSize)
+        %assertArrangementDescribesSize Require a letter for every data dimension.
+        %
+        %   Indexing with fewer subscripts than the data has dimensions
+        %   folds the remaining dimensions into the last subscript, so a
+        %   short arrangement would read the wrong elements without an
+        %   error. Trailing dimensions of length 1 need no letter. Either
+        %   input is empty while an object is being constructed.
+            if isempty(dimArrangement) || isempty(dataSize)
+                return
+            end
+
+            numDataDimensions = find(dataSize ~= 1, 1, 'last');
+            if ~isempty(numDataDimensions) && numDataDimensions > numel(dimArrangement)
+                error('IMAGESTACK:InvalidDimensionArrangement', ...
+                    ['Data of size %s has more dimensions than the dimension ', ...
+                    'arrangement "%s" describes.'], mat2str(dataSize), dimArrangement)
+            end
+        end
+
         function validateDimensionArrangement(dimArrangement, refArrangement)
             
             % Check that dimension arrangement is a char
@@ -433,6 +456,12 @@ classdef ImageStackDataCore < handle
                 msg2 = sprintf('Dimension arrangement can only contain the letters %s', ...
                 strjoin( arrayfun(@(c) sprintf('''%s''',c), A, 'uni', 0), ', ') );
                 error('IMAGESTACK:WrongDimensionLetter', msg2) %#ok<SPERR>
+            end
+
+            if numel(unique(dimArrangement)) ~= numel(dimArrangement)
+                error('IMAGESTACK:InvalidDimensionArrangement', ...
+                    'Dimension arrangement "%s" repeats a letter. Each of %s can appear once.', ...
+                    dimArrangement, A)
             end
             
             % Check that the dimension arrangement is a permutation of
