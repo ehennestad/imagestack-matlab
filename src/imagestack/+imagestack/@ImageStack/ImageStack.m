@@ -57,6 +57,24 @@ classdef ImageStack < handle
             obj.CurrentPlane = stackOptions.CurrentPlane;
         end
 
+        function set.Data(obj, newValue)
+            if ~isa(newValue, 'imagestack.data.abstract.ImageStackData')
+                error('IMAGESTACK:InvalidData', ...
+                    ['Data must be an ImageStackData object, for example ', ...
+                    'imagestack.data.MatlabArray. Got a value of class %s.'], ...
+                    class(newValue))
+            end
+            obj.Data = newValue;
+
+            % Projections, intensity limits and the static cache describe
+            % the previous data. MATLAB assigns the backend back to this
+            % property after an indexed write such as
+            % stack.Data(:, :, 1) = image, so those writes clear them too.
+            % A write through a separate reference to the backend handle
+            % cannot be detected here.
+            obj.clearDerivedCaches()
+        end
+
         function value = get.MetaData(obj)
             value = obj.Data.MetaData;
         end
@@ -753,8 +771,11 @@ classdef ImageStack < handle
         end
 
         function clearDerivedCaches(obj)
+        %clearDerivedCaches Drop everything computed or copied from Data.
             obj.clearProjectionCache()
             obj.DataIntensityLimits = [];
+            obj.StaticCacheData = [];
+            obj.StaticCacheFrameIndices = [];
         end
 
         function clearProjectionCache(obj)
