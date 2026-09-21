@@ -2,6 +2,25 @@ classdef ImageStackDataLegacy < imagestack.data.abstract.ImageStackDataCore
 %ImageStackDataLegacy ImageStackData variant backed by subsref/subsasgn.
 
     methods
+        function index = end(obj, position, numSubscripts)
+        %END Last index of a stack dimension in an indexing expression.
+        %
+        %   The built-in end measures the 1-by-1 object array, so without
+        %   this method obj(:, :, end) selects index 1.
+            if builtin('numel', obj) > 1
+                index = builtin('end', obj, position, numSubscripts);
+            else
+                stackSize = size(obj);
+                stackSize(end+1:numSubscripts) = 1;
+                if position < numSubscripts
+                    index = stackSize(position);
+                else
+                    % The last subscript spans all remaining dimensions.
+                    index = prod(stackSize(position:end));
+                end
+            end
+        end
+
         function varargout = subsref(obj, s)
             varargout = cell(1, nargout);
             useBuiltin = strcmp(s(1).type, '.') || numel(obj) > 1;
