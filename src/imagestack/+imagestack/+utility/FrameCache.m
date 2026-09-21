@@ -34,7 +34,6 @@ classdef FrameCache < handle
 
             obj.DataSize = dataSize;
             obj.DataType = dataType;
-            obj.CacheLength = min(cacheLength, max(1, dataSize(end)));
             obj.LeadingDimension = numel(dataSize);
 
             if ~isempty(varargin)
@@ -45,7 +44,11 @@ classdef FrameCache < handle
                 end
             end
 
+            % The cache never needs more slots than there are frames. A
+            % leading dimension beyond the end of dataSize has length 1.
             cacheSize = dataSize;
+            cacheSize(end+1:obj.LeadingDimension) = 1;
+            obj.CacheLength = min(cacheLength, max(1, cacheSize(obj.LeadingDimension)));
             cacheSize(obj.LeadingDimension) = obj.CacheLength;
             obj.Data = zeros(cacheSize, dataType);
             obj.CachedFrameIndices = zeros(1, obj.CacheLength);
@@ -66,12 +69,24 @@ classdef FrameCache < handle
 
         function [frameData, hitIndices, missIndices] = fetchData(obj, frameIndices)
             hitMask = ismember(obj.CachedFrameIndices, frameIndices);
-            subs = repmat({':'}, 1, ndims(obj.Data));
+            subs = repmat({':'}, 1, max(ndims(obj.Data), obj.LeadingDimension));
             subs{obj.LeadingDimension} = hitMask;
             frameData = obj.Data(subs{:});
 
             hitIndices = obj.CachedFrameIndices(hitMask);
             missIndices = frameIndices(~ismember(frameIndices, hitIndices));
+        end
+
+        function invalidateData(obj, frameIndices)
+        %invalidateData Forget cached frames, so that they are read again.
+        %
+        %   frameIndices is a vector of frame indices, or ':' for all.
+            if ischar(frameIndices) && strcmp(frameIndices, ':')
+                obj.CachedFrameIndices(:) = 0;
+            else
+                isInvalidated = ismember(obj.CachedFrameIndices, frameIndices);
+                obj.CachedFrameIndices(isInvalidated) = 0;
+            end
         end
 
         function submitData(obj, frameData, frameIndices)
@@ -83,7 +98,7 @@ classdef FrameCache < handle
             insertIndices = obj.NextInsertIndex + (0:nFrames-1);
             insertIndices = mod(insertIndices-1, obj.CacheLength) + 1;
 
-            subs = repmat({':'}, 1, ndims(obj.Data));
+            subs = repmat({':'}, 1, max(ndims(obj.Data), obj.LeadingDimension));
             subs{obj.LeadingDimension} = insertIndices;
             obj.Data(subs{:}) = frameData;
             obj.CachedFrameIndices(insertIndices) = frameIndices;
