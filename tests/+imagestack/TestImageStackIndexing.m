@@ -47,6 +47,28 @@ classdef TestImageStackIndexing < matlab.unittest.TestCase
             testCase.verifyEqual([numRows, numBeyond], [2, 1])
         end
 
+        function testLinearIndexCountsInStackOrder(testCase)
+            [array, stackOrderData] = createPermutedArray();
+
+            for linearIndex = [1, 2, 7, 20, numel(stackOrderData)]
+                testCase.verifyEqual(array(linearIndex), stackOrderData(linearIndex))
+            end
+            testCase.verifyEqual(array(end), stackOrderData(end))
+        end
+
+        function testColonReturnsElementsInStackOrder(testCase)
+            [array, stackOrderData] = createPermutedArray();
+
+            testCase.verifyEqual(array(:), stackOrderData(:))
+        end
+
+        function testLinearIndexVectorIsRejected(testCase)
+            array = createPermutedArray();
+
+            testCase.verifyError(@() array([1, 5]), ...
+                'IMAGESTACK:LinearIndexingNotSupported')
+        end
+
         function testSelectorMatchesConfiguredVariant(testCase)
             activeVariant = string(getpref('imagestack', 'IndexingVariant'));
             expectedSuperclass = "imagestack.data.abstract.ImageStackData" + ...

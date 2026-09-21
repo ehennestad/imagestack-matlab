@@ -101,7 +101,9 @@ classdef MatlabArray < imagestack.data.abstract.ImageStackData
         end
 
         function data = getLinearizedData(obj)
-            data = obj.DataArray(:);
+            % Elements are listed in stack dimension order, like size(obj).
+            data = ipermute(obj.DataArray, obj.StackDimensionOrder);
+            data = data(:);
         end
     end
 

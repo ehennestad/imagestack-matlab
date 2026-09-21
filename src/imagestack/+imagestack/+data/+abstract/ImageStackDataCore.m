@@ -186,7 +186,19 @@ classdef ImageStackDataCore < handle
             if numRequestedDim == ndims(obj)
                 dataSubs = obj.rearrangeSubs(stackSubs);
             elseif numRequestedDim == 1
-                [dataSubs{1:ndims(obj)}] = ind2sub(obj.DataSize, stackSubs{1});
+                % A linear index counts elements in stack dimension order,
+                % like size(obj). It is converted to one subscript per
+                % dimension. Backends read rectangular blocks, so a list
+                % of scattered elements cannot be gathered.
+                linearIndex = stackSubs{1};
+                if ~(isnumeric(linearIndex) && isscalar(linearIndex))
+                    error('IMAGESTACK:LinearIndexingNotSupported', ...
+                        ['Indexing with one subscript supports a single linear ', ...
+                        'index or a colon. Use one subscript per dimension (%d) ', ...
+                        'to read several elements.'], ndims(obj))
+                end
+                [elementSubs{1:ndims(obj)}] = ind2sub(size(obj), linearIndex);
+                dataSubs = obj.rearrangeSubs(elementSubs);
             else
                 error('IMAGESTACK:InvalidIndexing', ...
                     'Requested number of dimensions does not match number of data dimensions.')
