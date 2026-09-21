@@ -113,6 +113,36 @@ classdef TestImageStackConsumerContract < matlab.unittest.TestCase
             testCase.verifyEqual(stack.getMovingWindowFrameIndices(10, 5), 6:10)
         end
 
+        function testGetMovingWindowFrameIndicesEvenWindow(testCase)
+            stack = testCase.createXYTStack(10);
+
+            testCase.verifyEqual(stack.getMovingWindowFrameIndices(1, 4), 1:4)
+            testCase.verifyEqual(stack.getMovingWindowFrameIndices(5, 4), 4:7)
+            testCase.verifyEqual(stack.getMovingWindowFrameIndices(10, 4), 7:10)
+        end
+
+        function testGetMovingWindowFrameIndicesHasRequestedLength(testCase)
+            numTimepoints = 10;
+            stack = testCase.createXYTStack(numTimepoints);
+
+            for windowLength = 1:6
+                for frameNum = 1:numTimepoints
+                    indices = stack.getMovingWindowFrameIndices(frameNum, windowLength);
+
+                    testCase.verifyNumElements(indices, windowLength)
+                    testCase.verifyTrue(ismember(frameNum, indices))
+                    testCase.verifyGreaterThanOrEqual(indices(1), 1)
+                    testCase.verifyLessThanOrEqual(indices(end), numTimepoints)
+                end
+            end
+        end
+
+        function testGetMovingWindowFrameIndicesWindowLongerThanStack(testCase)
+            stack = testCase.createXYTStack(3);
+
+            testCase.verifyEqual(stack.getMovingWindowFrameIndices(2, 5), 1:3)
+        end
+
         function testGetDimensionNumberReturnsExpectedAxis(testCase)
             data = reshape(uint16(1:(5*4*2*3*6)), [5, 4, 2, 3, 6]);
             stack = imagestack.ImageStack(data, 'DataDimensionArrangement', 'YXCZT');

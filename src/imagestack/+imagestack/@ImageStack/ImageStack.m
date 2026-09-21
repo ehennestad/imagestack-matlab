@@ -342,14 +342,15 @@ classdef ImageStack < handle
             obj.validateChunkDimension(dim)
             numFrames = obj.getDimensionLength(dim);
 
-            if frameNum <= ceil(windowLength/2)
-                frameIndices = 1:min(numFrames, windowLength);
-            elseif (numFrames - frameNum) < ceil(windowLength/2)
-                frameIndices = max(numFrames-windowLength+1, 1):numFrames;
-            else
-                halfWidth = floor(windowLength/2);
-                frameIndices = frameNum + (-halfWidth:halfWidth);
-            end
+            % The window holds exactly windowLength indices, or every index
+            % when the dimension is shorter. An even window cannot be
+            % centered on frameNum, so it takes the extra index after it.
+            % Near either end the window is shifted inward, not shortened.
+            numIndices = min(windowLength, numFrames);
+            numBefore = floor((numIndices-1)/2);
+            firstIndex = frameNum - numBefore;
+            firstIndex = min(max(firstIndex, 1), numFrames-numIndices+1);
+            frameIndices = firstIndex:(firstIndex+numIndices-1);
         end
 
         function dimNumber = getDimensionNumber(obj, dimName)
