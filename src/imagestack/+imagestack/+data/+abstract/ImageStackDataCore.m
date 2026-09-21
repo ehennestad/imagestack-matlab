@@ -72,6 +72,11 @@ classdef ImageStackDataCore < handle
             end
 
             stackSize = obj.StackSize;
+
+            % Dimensions beyond the stack dimensions have length 1.
+            if nargin == 2 && max(dim) > numel(stackSize)
+                stackSize(end+1:max(dim)) = 1;
+            end
             
             % Return length of each dimension in a row vector
             if nargin == 1 && (nargout == 1 || ~nargout)
@@ -79,10 +84,6 @@ classdef ImageStackDataCore < handle
             
             % Return length of specified dimension, dim
             elseif nargin == 2 && (nargout == 1 || ~nargout)
-                
-                if max(dim) > numel(stackSize)
-                    stackSize(end+1:max(dim)) = 1;
-                end
                 
                 varargout{1} = stackSize(dim);
                 
