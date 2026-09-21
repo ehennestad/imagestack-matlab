@@ -176,7 +176,11 @@ classdef ImageStackDataCore < handle
     methods (Access = protected) % Internal updating (change to private?) onDataSizeChanged must be protected...
         
         function varargout = referenceStackData(obj, stackSubs)
-            if isequal(stackSubs, {':'})
+            % isequal(58, ':') is true, because 58 is the character code of
+            % a colon, so the class of the subscript is checked as well.
+            isColon = isscalar(stackSubs) && ischar(stackSubs{1}) ...
+                && strcmp(stackSubs{1}, ':');
+            if isColon
                 varargout{1} = obj.getLinearizedData();
                 return
             end
@@ -186,7 +190,19 @@ classdef ImageStackDataCore < handle
             if numRequestedDim == ndims(obj)
                 dataSubs = obj.rearrangeSubs(stackSubs);
             elseif numRequestedDim == 1
-                [dataSubs{1:ndims(obj)}] = ind2sub(obj.DataSize, stackSubs{1});
+                % A linear index counts elements in stack dimension order,
+                % like size(obj). It is converted to one subscript per
+                % dimension. Backends read rectangular blocks, so a list
+                % of scattered elements cannot be gathered.
+                linearIndex = stackSubs{1};
+                if ~(isnumeric(linearIndex) && isscalar(linearIndex))
+                    error('IMAGESTACK:LinearIndexingNotSupported', ...
+                        ['Indexing with one subscript supports a single linear ', ...
+                        'index or a colon. Use one subscript per dimension (%d) ', ...
+                        'to read several elements.'], ndims(obj))
+                end
+                [elementSubs{1:ndims(obj)}] = ind2sub(size(obj), linearIndex);
+                dataSubs = obj.rearrangeSubs(elementSubs);
             else
                 error('IMAGESTACK:InvalidIndexing', ...
                     'Requested number of dimensions does not match number of data dimensions.')
