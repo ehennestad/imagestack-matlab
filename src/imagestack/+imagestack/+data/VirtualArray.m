@@ -117,6 +117,10 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
             dim = obj.getFrameIndexingDimension();
             frameInd = subs{dim};
             obj.writeFrames(data, frameInd);
+
+            if obj.HasCachedData
+                obj.DynamicFrameCache.invalidateData(frameInd)
+            end
         end
 
         function readMetadata(obj)
@@ -136,6 +140,17 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
     methods (Access = protected)
         function onDataSizeChanged(obj)
             onDataSizeChanged@imagestack.data.abstract.ImageStackData(obj)
+            if obj.UseDynamicCache
+                obj.initializeDynamicFrameCache()
+            end
+        end
+
+        function onDataDimensionArrangementChanged(obj, oldValue, newValue)
+            onDataDimensionArrangementChanged@imagestack.data.abstract.ImageStackData( ...
+                obj, oldValue, newValue)
+
+            % The cache is laid out along the frame dimension, which
+            % depends on the arrangement.
             if obj.UseDynamicCache
                 obj.initializeDynamicFrameCache()
             end
@@ -266,7 +281,10 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
         end
 
         function initializeDynamicFrameCache(obj)
-            if isempty(obj.DataType) || isempty(obj.DataSize)
+            % The size, type and arrangement are assigned one at a time
+            % while the object is constructed.
+            if isempty(obj.DataType) || isempty(obj.DataSize) ...
+                    || isempty(obj.DataDimensionArrangement)
                 return
             end
             obj.DynamicFrameCache = imagestack.utility.FrameCache(...
@@ -278,38 +296,29 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
             frameDim = obj.getFrameIndexingDimension();
             frameIndices = subs{frameDim};
             if ischar(frameIndices) && strcmp(frameIndices, ':')
-                frameIndices = 1:obj.DataSize(frameDim);
+                frameIndices = 1:obj.getDimLength(obj.DataDimensionArrangement(frameDim));
+            end
+            frameIndices = reshape(frameIndices, 1, []);
+
+            % Fetch each frame once. The cache returns its hits in slot
+            % order, so the requested order and any repeated indices are
+            % restored from availableIndices below.
+            [frameData, availableIndices, missIndices] = ...
+                obj.DynamicFrameCache.fetchData(unique(frameIndices));
+
+            if ~isempty(missIndices)
+                readSubs = repmat({':'}, 1, ndims(obj));
+                readSubs{frameDim} = missIndices;
+                uncachedData = obj.readData(readSubs);
+                obj.DynamicFrameCache.submitData(uncachedData, missIndices);
+
+                frameData = cat(frameDim, frameData, uncachedData);
+                availableIndices = [availableIndices, missIndices];
             end
 
-            [cachedData, hitIndices, missIndices] = ...
-                obj.DynamicFrameCache.fetchData(frameIndices);
-
-            if isempty(missIndices)
-                cacheSubs = subs;
-                cacheSubs{frameDim} = ':';
-                data = cachedData(cacheSubs{:});
-                return
-            end
-
-            readSubs = repmat({':'}, 1, numel(obj.DataSize));
-            readSubs{frameDim} = missIndices;
-            uncachedData = obj.readData(readSubs);
-            obj.DynamicFrameCache.submitData(uncachedData, missIndices);
-
-            if isempty(hitIndices)
-                localSubs = subs;
-                [~, localFrameIndices] = ismember(frameIndices, missIndices);
-                localSubs{frameDim} = localFrameIndices;
-                data = uncachedData(localSubs{:});
-                return
-            end
-
-            combinedData = cat(frameDim, cachedData, uncachedData);
-            combinedIndices = [hitIndices, missIndices];
-            [~, order] = ismember(frameIndices, combinedIndices);
-            finalSubs = subs;
-            finalSubs{frameDim} = order;
-            data = combinedData(finalSubs{:});
+            [~, positions] = ismember(frameIndices, availableIndices);
+            subs{frameDim} = positions;
+            data = frameData(subs{:});
         end
     end
 
