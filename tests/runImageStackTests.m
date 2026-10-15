@@ -1,16 +1,8 @@
-function results = runImageStackTests(indexingVariant)
+function results = runImageStackTests()
 %RUNIMAGESTACKTESTS Run the ImageStack standalone test suite.
 
-if nargin == 0
-    indexingVariant = "legacy";
-end
-
 repoRoot = fileparts(fileparts(mfilename('fullpath')));
-if ~contains(path, repoRoot)
-    addpath(repoRoot)
-end
-
-setupImagestack(IndexingVariant=indexingVariant, AddPaths=true)
+run(fullfile(repoRoot, 'startup.m'))
 
 suite = testsuite(fullfile(fileparts(mfilename('fullpath')), '+imagestack'));
 results = run(suite);
