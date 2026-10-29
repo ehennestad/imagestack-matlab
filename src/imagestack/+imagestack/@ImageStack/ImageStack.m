@@ -128,6 +128,9 @@ classdef ImageStack < handle
         end
 
         function value = get.NumFrames(obj)
+            % Kept for NANSEN compatibility: selected channels times
+            % selected planes times timepoints. Prefer NumChannels,
+            % NumPlanes and NumTimepoints, which are defined per axis.
             value = obj.getSelectionLength(obj.CurrentChannel, 'C') * ...
                 obj.getSelectionLength(obj.CurrentPlane, 'Z') * ...
                 obj.NumTimepoints;
@@ -149,8 +152,13 @@ classdef ImageStack < handle
         function data = getFrameSet(obj, frameInd, mode)
         %getFrameSet Read stack data through the current front-end view.
         %
+        %   frameInd selects timepoints. A stack without a T dimension is
+        %   indexed along planes instead, and a stack without T and Z
+        %   along channels.
+        %
         %   `standard` mode respects CurrentChannel and CurrentPlane.
-        %   `extended` mode exposes the full backend arrangement.
+        %   `extended` mode returns all channels and planes.
+        %   Both modes return data in stack dimension order.
             if nargin < 2 || isempty(frameInd)
                 frameInd = ':';
             end
@@ -166,9 +174,7 @@ classdef ImageStack < handle
                 end
             end
 
-            subs = obj.buildIndexingSubs(mode);
-            frameDim = obj.resolveFrameDimensionNumber(mode);
-            subs{frameDim} = frameInd;
+            subs = obj.buildAccessSubs(frameInd, mode);
             data = obj.Data(subs{:});
         end
 
@@ -184,9 +190,7 @@ classdef ImageStack < handle
                 end
             end
 
-            subs = obj.buildIndexingSubs('standard');
-            frameDim = obj.resolveFrameDimensionNumber('standard');
-            subs{frameDim} = frameInd;
+            subs = obj.buildAccessSubs(frameInd, 'standard');
 
             obj.validateWriteFrameSetInput(imageArray, subs)
             obj.Data(subs{:}) = imageArray;
@@ -201,9 +205,20 @@ classdef ImageStack < handle
                 dim = 'T';
             end
 
+            dim = upper(char(dim));
             [frameIndices, ~] = obj.getChunkedFrameIndices(chunkLength, ...
                 chunkIndex, dim);
-            data = obj.getFrameSet(frameIndices, 'extended');
+
+            % Index the requested axis directly. getFrameSet always indexes
+            % the access axis, which differs from dim when chunking along C,
+            % or along Z in a stack that also has T. A stack without the
+            % requested axis is a single chunk.
+            subs = obj.buildIndexingSubs('extended');
+            axisNumber = obj.getStackAxisNumber(dim);
+            if ~isempty(axisNumber)
+                subs{axisNumber} = frameIndices;
+            end
+            data = obj.Data(subs{:});
         end
 
         function projectionImage = getProjection(obj, projectionName, frameInd, dim, mode)
@@ -211,13 +226,7 @@ classdef ImageStack < handle
                 frameInd = 'all';
             end
             if nargin < 4 || isempty(dim)
-                if contains(obj.DimensionOrder, 'T')
-                    dim = 'T';
-                elseif contains(obj.DimensionOrder, 'Z')
-                    dim = 'Z';
-                else
-                    dim = obj.DimensionOrder(end);
-                end
+                dim = obj.getAccessAxisName();
             end
             if nargin < 5 || isempty(mode)
                 mode = 'standard';
@@ -229,11 +238,13 @@ classdef ImageStack < handle
                 tmpStack = obj.getFrameSet(frameInd, 'standard');
             end
             if ischar(dim) || isstring(dim)
-                dimMode = mode;
-                if ~strcmp(dimMode, 'extended')
-                    dimMode = 'standard';
+                dimName = upper(char(dim));
+                dim = obj.getStackAxisNumber(dimName);
+                if isempty(dim)
+                    error('IMAGESTACK:UnknownDimension', ...
+                        'Cannot project along dimension "%s". The stack dimensions are %s.', ...
+                        dimName, obj.DimensionOrder)
                 end
-                dim = obj.lookupDimensionNumber(char(dim), dimMode);
             end
 
             switch lower(projectionName)
@@ -269,18 +280,8 @@ classdef ImageStack < handle
                 end
             end
 
-            subs = obj.buildIndexingSubs(mode);
-            frameDim = obj.resolveFrameDimensionNumber(mode);
-            subs{frameDim} = frameInd;
-
-            switch mode
-                case 'extended'
-                    baseSize = obj.Data.DataSize;
-                otherwise
-                    baseSize = size(obj.Data);
-            end
-
-            dataSize = obj.getIndexedDataSize(baseSize, subs);
+            subs = obj.buildAccessSubs(frameInd, mode);
+            dataSize = obj.getIndexedDataSize(size(obj.Data), subs);
         end
 
         function projectionImage = getFullProjection(obj, projectionName)
@@ -315,7 +316,7 @@ classdef ImageStack < handle
         end
 
         function dimNumber = getDimensionNumber(obj, dimName)
-            dimNumber = obj.lookupDimensionNumber(upper(char(dimName)), 'standard');
+            dimNumber = obj.getStackAxisNumber(upper(char(dimName)));
         end
 
         function limits = getDataIntensityLimits(obj)
@@ -406,7 +407,7 @@ classdef ImageStack < handle
                     'Downsample factor exceeds the number of timepoints.')
             end
 
-            frameDim = obj.resolveFrameDimensionNumber('standard');
+            frameDim = obj.getAccessAxisNumber();
             reducedFrames = cell(1, numOutputFrames);
             for i = 1:numOutputFrames
                 frameIndices = (i-1) * n + (1:n);
@@ -459,6 +460,8 @@ classdef ImageStack < handle
             if nargin < 3 || isempty(dim)
                 dim = 'T';
             end
+            dim = upper(char(dim));
+            obj.validateChunkDimension(dim)
 
             frameSize = [obj.ImageHeight, obj.ImageWidth];
             bytesPerFrame = imagestack.data.abstract.ImageStackData.getImageDataByteSize( ...
@@ -474,9 +477,13 @@ classdef ImageStack < handle
                     n = max(1, floor(n / max(1, obj.NumPlanes * obj.NumTimepoints)));
             end
 
+            % size(obj.Data) is in stack order, so the axis number must be
+            % too. A stack without the requested axis is a single chunk.
             chunkSize = size(obj.Data);
-            dimNumber = obj.lookupDimensionNumber(dim, 'extended');
-            chunkSize(dimNumber) = min(chunkSize(dimNumber), n);
+            axisNumber = obj.getStackAxisNumber(dim);
+            if ~isempty(axisNumber)
+                chunkSize(axisNumber) = min(chunkSize(axisNumber), n);
+            end
         end
 
         function [indices, numChunks] = getChunkedFrameIndices(obj, numFramesPerChunk, chunkIndex, dim, firstIdx, lastIdx)
@@ -565,26 +572,45 @@ classdef ImageStack < handle
         end
 
         function dimLength = getDimensionLength(obj, dimName)
-            dimIndex = obj.lookupDimensionNumber(dimName, 'extended');
-            if isempty(dimIndex)
+            % size(obj.Data) has one entry per stack dimension, including a
+            % trailing singleton that size() drops from a MATLAB array.
+            axisNumber = obj.getStackAxisNumber(dimName);
+            if isempty(axisNumber)
                 dimLength = 1;
             else
-                dimLength = obj.Data.DataSize(dimIndex);
+                stackSize = size(obj.Data);
+                dimLength = stackSize(axisNumber);
             end
         end
 
-        function dimNumber = lookupDimensionNumber(obj, dimName, mode)
-        %lookupDimensionNumber Resolve a dimension letter to a numeric axis.
-            if nargin < 3 || isempty(mode)
-                mode = 'standard';
-            end
+        function axisNumber = getStackAxisNumber(obj, dimName)
+        %getStackAxisNumber Resolve a dimension letter to its stack axis.
+        %
+        %   obj.Data is indexed in stack dimension order in both standard
+        %   and extended mode, so every axis number used by the front end
+        %   is resolved against DimensionOrder. Returns [] when the stack
+        %   has no such dimension.
+            axisNumber = strfind(obj.DimensionOrder, dimName);
+        end
 
-            switch mode
-                case 'extended'
-                    dimNumber = strfind(obj.Data.DataDimensionArrangement, dimName);
-                otherwise
-                    dimNumber = strfind(obj.DimensionOrder, dimName);
+        function axisName = getAccessAxisName(obj)
+        %getAccessAxisName Letter of the axis that frameInd indexes.
+        %
+        %   getFrameSet, writeFrameSet and getFrameSetSize index timepoints
+        %   (T) when present, otherwise planes (Z), otherwise channels (C).
+        %   Returns '' for a single image, which has no such axis.
+            axisName = '';
+            for candidate = 'TZC'
+                if contains(obj.DimensionOrder, candidate)
+                    axisName = candidate;
+                    return
+                end
             end
+        end
+
+        function axisNumber = getAccessAxisNumber(obj)
+        %getAccessAxisNumber Stack axis number of the access axis, [] if none.
+            axisNumber = obj.getStackAxisNumber(obj.getAccessAxisName());
         end
 
         function subs = buildIndexingSubs(obj, mode)
@@ -593,52 +619,38 @@ classdef ImageStack < handle
                 mode = 'standard';
             end
 
-            switch mode
-                case 'extended'
-                    nDims = numel(obj.Data.DataDimensionArrangement);
-                otherwise
-                    nDims = numel(size(obj.Data));
-            end
-            subs = repmat({':'}, 1, nDims);
+            subs = repmat({':'}, 1, numel(obj.DimensionOrder));
 
             if strcmp(mode, 'extended')
                 return
             end
 
-            dimC = obj.lookupDimensionNumber('C', mode);
+            dimC = obj.getStackAxisNumber('C');
             if ~isempty(dimC) && ~isequal(obj.CurrentChannel, ':')
                 subs{dimC} = obj.CurrentChannel;
             end
 
-            dimZ = obj.lookupDimensionNumber('Z', mode);
+            dimZ = obj.getStackAxisNumber('Z');
             if ~isempty(dimZ) && ~isequal(obj.CurrentPlane, ':')
                 subs{dimZ} = obj.CurrentPlane;
             end
         end
 
-        function frameDim = resolveFrameDimensionNumber(obj, mode)
-        %resolveFrameDimensionNumber Choose the stack axis used as frames.
-            if nargin < 2 || isempty(mode)
-                mode = 'standard';
-            end
+        function subs = buildAccessSubs(obj, frameInd, mode)
+        %buildAccessSubs Subscripts selecting frameInd along the access axis.
+            subs = obj.buildIndexingSubs(mode);
+            accessAxis = obj.getAccessAxisNumber();
 
-            switch mode
-                case 'extended'
-                    if contains(obj.Data.DataDimensionArrangement, 'T')
-                        frameDim = obj.lookupDimensionNumber('T', 'extended');
-                    elseif contains(obj.Data.DataDimensionArrangement, 'Z')
-                        frameDim = obj.lookupDimensionNumber('Z', 'extended');
-                    else
-                        frameDim = numel(obj.Data.DataDimensionArrangement);
-                    end
-                otherwise
-                    if contains(obj.DimensionOrder, 'T')
-                        frameDim = obj.lookupDimensionNumber('T');
-                    elseif contains(obj.DimensionOrder, 'Z')
-                        frameDim = obj.lookupDimensionNumber('Z');
-                    else
-                        frameDim = numel(obj.DimensionOrder);
-                    end
+            if ~isempty(accessAxis)
+                subs{accessAxis} = frameInd;
+            else
+                % A single image has no access axis, so its only index is 1.
+                isWholeImage = (ischar(frameInd) && strcmp(frameInd, ':')) ...
+                    || isequal(frameInd, 1);
+                if ~isWholeImage
+                    error('IMAGESTACK:FrameIndexOutOfRange', ...
+                        'The stack is a single image, so the only valid frame index is 1.')
+                end
             end
         end
 
