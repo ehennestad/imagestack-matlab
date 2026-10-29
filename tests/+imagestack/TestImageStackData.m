@@ -96,6 +96,46 @@ classdef TestImageStackData < matlab.unittest.TestCase
                 'IMAGESTACK:WrongDimensionLetter')
         end
 
+        function testArrangementShorterThanDataIsRejected(testCase)
+            data = zeros(2, 3, 4, 5);
+
+            testCase.verifyError( ...
+                @() imagestack.data.MatlabArray(data, DataDimensionArrangement='YXT'), ...
+                'IMAGESTACK:InvalidDimensionArrangement')
+        end
+
+        function testArrangementLongerThanDataIsAccepted(testCase)
+            array = imagestack.data.MatlabArray(zeros(2, 3, 4), ...
+                DataDimensionArrangement='YXCZT');
+
+            testCase.verifyEqual(size(array), [2, 3, 4, 1, 1])
+        end
+
+        function testChangingToShorterArrangementIsRejected(testCase)
+            array = imagestack.data.MatlabArray(zeros(2, 3, 4, 5), ...
+                DataDimensionArrangement='YXCT');
+
+            testCase.verifyError(@() setDataArrangement(array, 'YXT'), ...
+                'IMAGESTACK:InvalidDimensionArrangement')
+            testCase.verifyEqual(array.DataDimensionArrangement, 'YXCT')
+        end
+
+        function testArrangementWithRepeatedLetterIsRejected(testCase)
+            testCase.verifyError( ...
+                @() imagestack.data.MatlabArray(zeros(2, 3, 4), DataDimensionArrangement='YYX'), ...
+                'IMAGESTACK:InvalidDimensionArrangement')
+        end
+
+        function testInsertIntoSingleImageAddsTimeDimension(testCase)
+            array = imagestack.data.MatlabArray(zeros(4, 5, 'uint8'), ...
+                DataDimensionArrangement='YX');
+
+            array.insertImageData(ones(4, 5, 'uint8'), 1)
+
+            testCase.verifyEqual(array.DataDimensionArrangement, 'YXT')
+            testCase.verifyEqual(size(array), [4, 5, 2])
+        end
+
         function testGetImageDataByteSize(testCase)
             testCase.verifyEqual( ...
                 imagestack.data.abstract.ImageStackData.getImageDataByteSize([5, 4, 3], 'uint16'), ...
@@ -105,4 +145,8 @@ classdef TestImageStackData < matlab.unittest.TestCase
                 5 * 4 * 4)
         end
     end
+end
+
+function setDataArrangement(array, arrangement)
+array.DataDimensionArrangement = arrangement;
 end
