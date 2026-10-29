@@ -1,4 +1,4 @@
-name: Test code
+name: Run tests
 
 on:
   push:
@@ -39,6 +39,10 @@ jobs:
       
       # Whether to cache the MATLAB installation for faster subsequent setups
       matlab_use_cache: true
+
+      # The README shows this workflow's status badge, so no tests badge is
+      # generated from the test results
+      create_test_badge: false
       
       # Optional list of MATLAB products to install. Example if adding multiple 
       # products (use ">" and one product per line):
