@@ -59,6 +59,7 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
             assert(~isempty(obj.DataType), ...
                 'DataType should be set in getFileInfo or provided on creation.')
 
+            obj.restoreDataDimensionArrangement()
             obj.setDefaultDataDimensionArrangement()
             obj.setDefaultStackDimensionArrangement()
             obj.createMemoryMap()
@@ -123,7 +124,10 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
         end
 
         function writeMetadata(obj)
-            if strcmp(obj.FILE_PERMISSION, 'write') && ~obj.IsTransient
+            % MetaData is empty when the constructor failed before creating
+            % it, and the destructor still runs for that object.
+            if strcmp(obj.FILE_PERMISSION, 'write') && ~obj.IsTransient ...
+                    && ~isempty(obj.MetaData)
                 obj.MetaData.writeToFile()
             end
         end
@@ -229,20 +233,34 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
         end
 
         function applyOptions(obj, optionArgs)
+            arrangementNames = {'DataDimensionArrangement', 'StackDimensionArrangement'};
             fieldNames = fieldnames(optionArgs);
             for i = 1:numel(fieldNames)
                 fieldName = fieldNames{i};
                 value = optionArgs.(fieldName);
-                if isprop(obj, fieldName)
+
+                % An arrangement that was not passed is empty. Assigning it
+                % would fail validation against the other arrangement, and
+                % would discard the one saved with the file.
+                isOmittedArrangement = any(strcmp(fieldName, arrangementNames)) ...
+                    && isempty(value);
+                if isprop(obj, fieldName) && ~isOmittedArrangement
                     obj.(fieldName) = value;
-                elseif isprop(obj, 'DataDimensionArrangement') ...
-                        && strcmp(fieldName, 'DataDimensionArrangement') ...
-                        && ~isempty(value)
-                    obj.DataDimensionArrangement = value;
-                elseif isprop(obj, 'StackDimensionArrangement') ...
-                        && strcmp(fieldName, 'StackDimensionArrangement') ...
-                        && ~isempty(value)
-                    obj.StackDimensionArrangement = value;
+                end
+            end
+        end
+
+        function restoreDataDimensionArrangement(obj)
+        %restoreDataDimensionArrangement Use the arrangement saved with the file.
+        %
+        %   An arrangement passed by the caller or assigned by the adapter
+        %   takes precedence. Without either, the arrangement in MetaData
+        %   is used, before setDefaultDataDimensionArrangement guesses one
+        %   from the data size.
+            if isempty(obj.DataDimensionArrangement) && ~isempty(obj.MetaData)
+                savedArrangement = char(obj.MetaData.DimensionArrangement);
+                if ~isempty(savedArrangement)
+                    obj.DataDimensionArrangement = savedArrangement;
                 end
             end
         end
