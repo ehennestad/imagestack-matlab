@@ -177,6 +177,11 @@ classdef ImageStack < handle
         %   `standard` mode respects CurrentChannel and CurrentPlane.
         %   `extended` mode returns all channels and planes.
         %   Both modes return data in stack dimension order.
+        %
+        %   frameInd can also be 'all', or 'cache' to return the data stored
+        %   with addToStaticCache. Cached data is returned as stored, so
+        %   mode, CurrentChannel and CurrentPlane do not apply to it. With
+        %   nothing cached, 'cache' reads all frames.
             if nargin < 2 || isempty(frameInd)
                 frameInd = ':';
             end
@@ -184,16 +189,22 @@ classdef ImageStack < handle
                 mode = 'standard';
             end
 
+            useStaticCache = false;
             if ischar(frameInd) || isstring(frameInd)
                 if strcmp(frameInd, 'all')
                     frameInd = ':';
                 elseif strcmp(frameInd, 'cache')
+                    useStaticCache = obj.HasStaticCache;
                     frameInd = ':';
                 end
             end
 
-            subs = obj.buildAccessSubs(frameInd, mode);
-            data = obj.Data(subs{:});
+            if ~useStaticCache
+                subs = obj.buildAccessSubs(frameInd, mode);
+                data = obj.Data(subs{:});
+            else
+                data = obj.StaticCacheData;
+            end
         end
 
         function writeFrameSet(obj, imageArray, frameInd)
@@ -292,14 +303,22 @@ classdef ImageStack < handle
                 mode = 'standard';
             end
 
+            useStaticCache = false;
             if ischar(frameInd) || isstring(frameInd)
-                if strcmp(frameInd, 'all') || strcmp(frameInd, 'cache')
+                if strcmp(frameInd, 'all')
+                    frameInd = ':';
+                elseif strcmp(frameInd, 'cache')
+                    useStaticCache = obj.HasStaticCache;
                     frameInd = ':';
                 end
             end
 
-            subs = obj.buildAccessSubs(frameInd, mode);
-            dataSize = obj.getIndexedDataSize(size(obj.Data), subs);
+            if ~useStaticCache
+                subs = obj.buildAccessSubs(frameInd, mode);
+                dataSize = obj.getIndexedDataSize(size(obj.Data), subs);
+            else
+                dataSize = size(obj.StaticCacheData);
+            end
         end
 
         function projectionImage = getFullProjection(obj, projectionName)
@@ -366,6 +385,10 @@ classdef ImageStack < handle
         end
 
         function addToStaticCache(obj, imData, frameIndices)
+        %addToStaticCache Store image data for getFrameSet(obj, 'cache').
+        %
+        %   The cache holds one array and a new call replaces it. It is
+        %   cleared when Data is replaced or written to.
             if nargin < 3
                 frameIndices = [];
             end
