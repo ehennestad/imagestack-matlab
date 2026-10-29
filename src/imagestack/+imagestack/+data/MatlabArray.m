@@ -31,42 +31,65 @@ classdef MatlabArray < imagestack.data.abstract.ImageStackData
             end
             obj.setDefaultStackDimensionArrangement()
 
-            obj.MetaData.Size = obj.DataSize;
-            obj.MetaData.Class = obj.DataType;
-            obj.MetaData.DimensionArrangement = obj.DataDimensionArrangement;
-            obj.MetaData.SizeX = obj.getDimLength('X');
-            obj.MetaData.SizeY = obj.getDimLength('Y');
-            obj.MetaData.SizeC = obj.getDimLength('C');
-            obj.MetaData.SizeZ = obj.getDimLength('Z');
-            obj.MetaData.SizeT = obj.getDimLength('T');
+            obj.updateMetadata()
         end
 
         function insertImageData(obj, imageData, insertInd)
-            stackSize = size(obj.DataArray);
-            nDim = max([3, numel(stackSize)]);
-            subs = arrayfun(@(l) 1:l, stackSize, 'UniformOutput', false);
-
-            msg = ['Image cannot be inserted into this stack because ', ...
-                'the sizes do not match.'];
-            assert(isequal(stackSize(1:nDim-1), size(imageData)), msg)
-
-            if insertInd == 1
-                obj.DataArray = cat(nDim, imageData, obj.DataArray(subs{:}));
+        %insertImageData Insert image data along the time dimension.
+        %
+        %   imageData is in data dimension order and must match the array
+        %   in every dimension except T. insertInd is the timepoint that
+        %   the first inserted image gets, from 1 to the number of
+        %   timepoints plus 1. An array without a T dimension, such as a
+        %   single image, becomes a time series with T as the last
+        %   dimension.
+            hasTimeDimension = contains(obj.DataDimensionArrangement, 'T');
+            if hasTimeDimension
+                timeDim = obj.getDataDimensionNumber('T');
             else
-                [subsPre, subsPost] = deal(subs);
-                subsPre{nDim} = 1:insertInd(1)-1;
-                subsPost{nDim} = insertInd(1):subsPost{nDim}(end);
-
-                obj.DataArray = cat(nDim, obj.DataArray(subsPre{:}), ...
-                    imageData, obj.DataArray(subsPost{:}));
+                timeDim = numel(obj.DataDimensionArrangement) + 1;
             end
 
+            % Compare sizes over the same number of dimensions, so that
+            % trailing singleton dimensions count as length 1.
+            numDims = max(timeDim, numel(obj.DataDimensionArrangement));
+            arraySize = size(obj.DataArray, 1:numDims);
+            imageSize = size(imageData, 1:numDims);
+            otherDims = setdiff(1:numDims, timeDim);
+
+            if ~isequal(arraySize(otherDims), imageSize(otherDims)) ...
+                    || ndims(imageData) > numDims
+                error('IMAGESTACK:InsertSizeMismatch', ...
+                    ['Image data of size %s cannot be inserted into data of size %s ', ...
+                    '(%s). All dimensions except T must match.'], ...
+                    mat2str(size(imageData)), mat2str(arraySize), ...
+                    obj.DataDimensionArrangement)
+            end
+
+            numTimepoints = arraySize(timeDim);
+            isValidIndex = isnumeric(insertInd) && isscalar(insertInd) ...
+                && insertInd == round(insertInd) ...
+                && insertInd >= 1 && insertInd <= numTimepoints + 1;
+            if ~isValidIndex
+                error('IMAGESTACK:InsertIndexOutOfRange', ...
+                    'insertInd must be an integer from 1 to %d.', numTimepoints + 1)
+            end
+
+            subsBefore = repmat({':'}, 1, numDims);
+            subsBefore{timeDim} = 1:(insertInd-1);
+            subsAfter = repmat({':'}, 1, numDims);
+            subsAfter{timeDim} = insertInd:numTimepoints;
+
+            obj.DataArray = cat(timeDim, obj.DataArray(subsBefore{:}), ...
+                imageData, obj.DataArray(subsAfter{:}));
+
+            % The arrangement gains its T before the size is assigned, so
+            % that it describes every dimension of the new size.
+            if ~hasTimeDimension
+                obj.DataDimensionArrangement = [obj.DataDimensionArrangement, 'T'];
+            end
             obj.assignDataSize()
-
-            if numel(stackSize) ~= ndims(obj.DataArray) ...
-                    && strcmp(obj.DataDimensionArrangement, 'YX')
-                obj.DataDimensionArrangement = 'YXT';
-            end
+            obj.updateMetadata()
         end
 
         function removeImageData(~, ~)
@@ -78,6 +101,18 @@ classdef MatlabArray < imagestack.data.abstract.ImageStackData
     methods (Access = protected)
         function assignDataSize(obj)
             obj.DataSize = size(obj.DataArray);
+        end
+
+        function updateMetadata(obj)
+        %updateMetadata Copy the current size, type and arrangement to MetaData.
+            obj.MetaData.Size = obj.DataSize;
+            obj.MetaData.Class = obj.DataType;
+            obj.MetaData.DimensionArrangement = obj.DataDimensionArrangement;
+            obj.MetaData.SizeX = obj.getDimLength('X');
+            obj.MetaData.SizeY = obj.getDimLength('Y');
+            obj.MetaData.SizeC = obj.getDimLength('C');
+            obj.MetaData.SizeZ = obj.getDimLength('Z');
+            obj.MetaData.SizeT = obj.getDimLength('T');
         end
 
         function assignDataType(obj)
