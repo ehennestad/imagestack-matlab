@@ -98,7 +98,7 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
 
         function data = readData(obj, subs)
             if numel(subs) < numel(obj.DataSize)
-                subs{end+1:numel(obj.DataSize)} = {1};
+                subs(end+1:numel(obj.DataSize)) = {1};
             end
 
             dim = obj.getFrameIndexingDimension();
@@ -113,9 +113,27 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
         end
 
         function writeData(obj, subs, data)
-            obj.validateFrameSize(data)
             dim = obj.getFrameIndexingDimension();
             frameInd = subs{dim};
+
+            % writeFrames replaces whole frames. When the subscripts select
+            % part of a frame, such as one channel, one plane or an image
+            % region, the frames are read, the selected part is replaced,
+            % and the frames are written back.
+            if ~obj.selectsWholeFrames(subs, dim)
+                readInd = frameInd;
+                if ischar(readInd) && strcmp(readInd, ':')
+                    readInd = 1:obj.getDimLength(obj.DataDimensionArrangement(dim));
+                end
+                frameData = obj.readFrames(readInd);
+
+                partSubs = subs;
+                partSubs{dim} = ':';
+                frameData(partSubs{:}) = data;
+                data = frameData;
+            end
+
+            obj.validateFrameSize(data)
             obj.writeFrames(data, frameInd);
 
             if obj.HasCachedData
@@ -153,6 +171,18 @@ classdef (Abstract) VirtualArray < imagestack.data.abstract.ImageStackData
             % depends on the arrangement.
             if obj.UseDynamicCache
                 obj.initializeDynamicFrameCache()
+            end
+        end
+
+        function tf = selectsWholeFrames(obj, subs, frameDim)
+        %selectsWholeFrames True if subs cover every dimension except frameDim.
+            tf = true;
+            for i = setdiff(1:numel(subs), frameDim)
+                dimLength = obj.getDimLength(obj.DataDimensionArrangement(i));
+                isColon = ischar(subs{i}) && strcmp(subs{i}, ':');
+                if ~isColon && ~isequal(reshape(subs{i}, 1, []), 1:dimLength)
+                    tf = false;
+                end
             end
         end
 
