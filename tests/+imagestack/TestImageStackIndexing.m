@@ -24,21 +24,28 @@ classdef TestImageStackIndexing < matlab.unittest.TestCase
             testCase.verifyEqual(array.DataArray(:, :, 1, 2), patch)
         end
 
-        function testSelectorMatchesConfiguredVariant(testCase)
-            activeVariant = string(getpref('imagestack', 'IndexingVariant'));
-            expectedSuperclass = "imagestack.data.abstract.ImageStackData" + ...
-                upperFirst(activeVariant);
+        function testBaseClassMatchesMatlabRelease(testCase)
+            if isMATLABReleaseOlderThan("R2021b")
+                expectedSuperclass = "imagestack.data.abstract.ImageStackDataLegacy";
+            else
+                expectedSuperclass = "imagestack.data.abstract.ImageStackDataModern";
+            end
 
             classInfo = ?imagestack.data.abstract.ImageStackData;
             superclassNames = string({classInfo.SuperclassList.Name});
 
             testCase.verifyEqual(superclassNames, expectedSuperclass)
         end
-    end
-end
 
-function value = upperFirst(value)
-value = char(value);
-value(1) = upper(value(1));
-value = string(value);
+        function testGenpathAddsNoIndexingVariant(testCase)
+            % Both variants define ImageStackData. If both were on the
+            % path, the first would be used without a warning.
+            pathEntries = strsplit(genpath(imagestack.toolboxdir()), pathsep);
+            pathEntries = pathEntries(~cellfun(@isempty, pathEntries));
+            classFiles = fullfile(pathEntries, ...
+                '+imagestack', '+data', '+abstract', 'ImageStackData.m');
+
+            testCase.verifyEmpty(classFiles(isfile(classFiles)))
+        end
+    end
 end

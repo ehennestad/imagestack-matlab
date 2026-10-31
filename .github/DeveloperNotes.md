@@ -6,8 +6,10 @@ This document provides guidance for developing and maintaining the ImageStack to
 
 ```
 imagestack-matlab/
+├── startup.m                                      # Adds the toolbox to the path for a session
 ├── src/imagestack/                                # Main toolbox source code
 │   ├── +imagestack/                               # MATLAB package namespace
+│   ├── resources/indexing/                        # ImageStackData base class per MATLAB release
 │   ├── Contents.m                                 # Toolbox contents listing
 │   └── gettingStarted.m                           # Getting started guide
 ├── tests/                                         # Unit tests and test utilities
@@ -25,13 +27,19 @@ imagestack-matlab/
 
 ### 1. Setting Up Development Environment
 
+Run `startup.m` from the repository root once per MATLAB session. It adds `src/imagestack` to the path, and the folder in `src/imagestack/resources/indexing` that defines `imagestack.data.abstract.ImageStackData` for the running release: `modern` (inherits `matlab.mixin.indexing.RedefinesParen`) on R2021b and later, `legacy` (overloads `subsref` and `subsasgn`) before R2021b.
+
+`addpath(genpath('src/imagestack'))` is not enough. `genpath` skips folders named `resources`, and no stack data backend can be constructed without `ImageStackData`.
+
 ```matlab
 % Add the toolbox to your MATLAB path
-addpath(genpath('src/imagestack'));
+run('path/to/imagestack-matlab/startup.m')
 
 % Verify installation
 imagestack.toolboxversion()
 ```
+
+MATLAB also runs `startup.m` when it starts with the repository root as the current folder. In that case it runs this file instead of your own `startup.m`.
 
 ### 2. Writing Functions
 
@@ -110,7 +118,7 @@ end
 
 function setupOnce(testCase)
 % Setup for the entire test suite
-addpath(fullfile(fileparts(mfilename('fullpath')), '..', 'src', 'imagestack'));
+run(fullfile(fileparts(mfilename('fullpath')), '..', 'startup.m'));
 end
 
 function setup(testCase)
